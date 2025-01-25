@@ -54,18 +54,25 @@ impl ApplicationHandler for App {
                 println!("The close button was pressed; stopping");
                 event_loop.exit();
             }
-            KeyboardInput {
-                event:
-                    KeyEvent {
-                        physical_key: PhysicalKey::Code(KeyCode::Escape),
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } => {
-                println!("Escape button was pressed; stopping");
-                event_loop.exit();
-            }
+            KeyboardInput { event, .. } => match event {
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::Escape),
+                    state: ElementState::Pressed,
+                    ..
+                } => {
+                    println!("Escape button was pressed; stopping");
+                    event_loop.exit();
+                }
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::Space),
+                    state: ElementState::Pressed,
+                    ..
+                } => {
+                    state.rgb ^= true;
+                    println!("RGB color mode: {:?}", state.rgb);
+                }
+                _ => (),
+            },
             RedrawRequested => {
                 // request another redraw after this
                 window.request_redraw();
@@ -109,6 +116,9 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     window: Arc<Window>,
+    flat_render_pipeline: wgpu::RenderPipeline,
+    rgb_render_pipeline: wgpu::RenderPipeline,
+    rgb: bool,
 }
 
 impl State {
@@ -168,6 +178,94 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        let flat_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0, // use all samples
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
+        let rgb_render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_rgb",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0, // use all samples
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+
         Self {
             surface,
             device,
@@ -175,6 +273,9 @@ impl State {
             config,
             size,
             window,
+            flat_render_pipeline,
+            rgb_render_pipeline,
+            rgb: false,
         }
     }
 
@@ -206,26 +307,37 @@ impl State {
                 label: Some("Render Encoder"),
             });
         // clear out window by writing a color
-        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None, // used for multi-sampling
-                ops: wgpu::Operations {
-                    // can skip clear if rendering will cover whole surface anyway
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
-                        a: 1.0,
-                    }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
+            color_attachments: &[
+                // target for fragment shader @location(0)
+                Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None, // used for multi-sampling
+                    ops: wgpu::Operations {
+                        // can skip clear if rendering will cover whole surface anyway
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.1,
+                            g: 0.2,
+                            b: 0.3,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                }),
+            ],
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
         });
+        render_pass.set_pipeline(if self.rgb {
+            &self.rgb_render_pipeline
+        } else {
+            &self.flat_render_pipeline
+        });
+        render_pass.draw(0..3, 0..1);
+
         // render pass recording ends when dropped
         drop(render_pass);
 
