@@ -1,8 +1,7 @@
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) color: vec3<f32>,
-    @location(2) tex_coords: vec2<f32>,
+    @location(1) tex_coords: vec2<f32>,
 };
 
 struct InstanceInput {
@@ -15,8 +14,7 @@ struct InstanceInput {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) vert_pos: vec3<f32>,
-    @location(1) color: vec3<f32>,
-    @location(2) tex_coords: vec2<f32>,
+    @location(1) tex_coords: vec2<f32>,
 };
 
 struct CameraUniform {
@@ -46,16 +44,8 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     );
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
     out.vert_pos = model.position;
-    out.color = model.color;
     out.tex_coords = model.tex_coords;
     return out;
-}
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // @builtin(position) is in framebuffer space, i.e. pixel coordinates (origin top left)
-    // with a window 800x600, clip_position would be between 0-800 and 0-600
-    return vec4<f32>(in.color, 1.0);
 }
 
 @fragment

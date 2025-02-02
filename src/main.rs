@@ -1,4 +1,5 @@
 mod app;
+mod model;
 mod texture;
 
 use anyhow::Result;
