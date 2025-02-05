@@ -217,7 +217,7 @@ pub fn load_model(
             .ok_or(anyhow::anyhow!("no diffuse texture"))?;
         let diffuse_texture = root.join(diffuse_texture);
         let diffuse_image = ImageReader::open(diffuse_texture)?.decode()?;
-        let diffuse_texture = Texture::from_image(device, queue, &diffuse_image, None);
+        let diffuse_texture = Texture::from_image(device, queue, &diffuse_image, None, false);
 
         let normal_texture = mat
             .normal_texture
@@ -225,7 +225,7 @@ pub fn load_model(
             .ok_or(anyhow::anyhow!("no normal texture"))?;
         let normal_texture = root.join(normal_texture);
         let normal_image = ImageReader::open(normal_texture)?.decode()?;
-        let normal_texture = Texture::from_image(device, queue, &normal_image, None);
+        let normal_texture = Texture::from_image(device, queue, &normal_image, None, true);
 
         materials.push(Material::new(
             device,
