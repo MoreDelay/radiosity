@@ -1,4 +1,6 @@
 mod app;
+mod camera;
+mod light;
 mod model;
 mod texture;
 

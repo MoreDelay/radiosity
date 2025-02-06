@@ -1,7 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
-use cgmath::{InnerSpace, Rotation3, SquareMatrix, Zero};
+use cgmath::{EuclideanSpace, InnerSpace, Rotation3, Zero};
 use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
@@ -12,6 +12,7 @@ use winit::{
 };
 
 use crate::{
+    camera, light,
     model::{self, DrawLight, DrawModel, ModelVertex, Vertex},
     texture,
 };
@@ -29,42 +30,6 @@ struct InstanceRaw {
 }
 
 const NUM_INSTANCES_PER_ROW: u32 = 10;
-
-struct Camera {
-    eye: cgmath::Point3<f32>,
-    target: cgmath::Point3<f32>,
-    up: cgmath::Vector3<f32>,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
-}
-
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
-);
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    view_pos: [f32; 4],
-    view_proj: [[f32; 4]; 4],
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct LightUniform {
-    position: [f32; 3],
-    // WGSL uniforms expect 4 float / 16 bytes alignment
-    // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
-    _padding: u32,
-    color: [f32; 3],
-    _padding2: u32,
-}
 
 #[derive(Default)]
 pub struct App {
@@ -171,6 +136,7 @@ impl App {
 
 struct State {
     paused: bool,
+    last_time: std::time::Instant,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -179,20 +145,12 @@ struct State {
     window: Arc<Window>,
     render_pipeline: wgpu::RenderPipeline,
     obj_model: model::Model,
-    camera_bind_group: wgpu::BindGroup,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
-    #[allow(unused)]
-    camera: Camera,
-    #[allow(unused)]
-    camera_uniform: CameraUniform,
-    #[allow(unused)]
-    camera_buffer: wgpu::Buffer,
-    #[allow(unused)]
-    light_uniform: LightUniform,
-    #[allow(unused)]
-    light_buffer: wgpu::Buffer,
+    camera: camera::Camera,
+    camera_bind_group: wgpu::BindGroup,
+    light: light::Light,
     light_bind_group: wgpu::BindGroup,
     light_render_pipeline: wgpu::RenderPipeline,
 }
@@ -256,7 +214,7 @@ impl State {
 
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shader.wgsl").into()),
         };
 
         let depth_texture =
@@ -301,24 +259,16 @@ impl State {
                 ],
             });
 
-        let camera = Camera {
-            eye: (0.0, 4.0, 7.0).into(),
-            target: (0.0, 0.0, 2.0).into(),
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
-
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera);
-
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let eye: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
+        let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
+        let up = cgmath::Vector3::unit_y();
+        let fovy = 45.0;
+        let znear = 0.1;
+        let zfar = 100.0;
+        let frame_size = (config.width, config.height).into();
+        let dir = target - eye;
+        let camera = camera::CameraParams::new(eye, dir, up, fovy, znear, zfar, frame_size);
+        let camera = camera::Camera::new(&device, camera);
 
         let camera_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -340,22 +290,19 @@ impl State {
             layout: &camera_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera_buffer.as_entire_binding(),
+                resource: camera.get_binding_resource(),
             }],
         });
 
-        let light_uniform = LightUniform {
-            position: [2., 2., 2.],
-            _padding: 0,
-            color: [1., 1., 1.],
-            _padding2: 0,
+        let position = [2., 2., 2.].into();
+        let color = light::Color {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
         };
-
-        let light_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Light VB"),
-            contents: bytemuck::cast_slice(&[light_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let light = light::LightParams::new(position, color);
+        let light = light::Light::new(&device, light);
 
         let light_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -377,7 +324,7 @@ impl State {
             layout: &light_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: light_buffer.as_entire_binding(),
+                resource: light.get_binding_resource(),
             }],
         });
 
@@ -410,7 +357,7 @@ impl State {
 
             let shader = wgpu::ShaderModuleDescriptor {
                 label: Some("Light Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/light.wgsl").into()),
             };
 
             create_render_pipeline(
@@ -456,9 +403,11 @@ impl State {
         });
 
         let paused = false;
+        let last_time = std::time::Instant::now();
 
         Self {
             paused,
+            last_time,
             surface,
             device,
             queue,
@@ -468,14 +417,11 @@ impl State {
             render_pipeline,
             obj_model,
             camera,
-            camera_uniform,
-            camera_buffer,
             camera_bind_group,
             instances,
             instance_buffer,
             depth_texture,
-            light_uniform,
-            light_buffer,
+            light,
             light_bind_group,
             light_render_pipeline,
         }
@@ -490,6 +436,8 @@ impl State {
             // resize depth texture
             self.depth_texture =
                 texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            let frame_size = (new_size.width, new_size.height).into();
+            self.camera.update_frame(&self.queue, frame_size);
         }
     }
 
@@ -498,18 +446,22 @@ impl State {
     }
 
     fn update(&mut self) {
+        let elapsed = self.last_time.elapsed();
+        let elapsed = elapsed.as_secs_f64();
+        let fps = 1. / elapsed;
+        self.last_time = std::time::Instant::now();
+        println!("FPS: {fps}");
+
         if self.paused {
             return;
         }
-        let old_pos: cgmath::Vector3<_> = self.light_uniform.position.into();
-        self.light_uniform.position =
-            (cgmath::Quaternion::from_axis_angle((0., 1., 0.).into(), cgmath::Deg(0.1)) * old_pos)
-                .into();
-        self.queue.write_buffer(
-            &self.light_buffer,
-            0,
-            bytemuck::cast_slice(&[self.light_uniform]),
-        );
+        let mut params = self.light.params;
+        let old_pos = params.pos.to_vec();
+        let new_pos =
+            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(0.1))
+                * old_pos;
+        params.pos = cgmath::Point3::from_vec(new_pos);
+        self.light.update(&self.queue, params);
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -579,33 +531,6 @@ impl State {
         output.present();
 
         Ok(())
-    }
-}
-
-impl Camera {
-    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        // wgpu uses DirectX / Metal coordinates
-        // there it is assumed that x,y are in range [-1., 1.] and z is in range of [0., 1.]
-        // cgmath uses OpenGL coordinates that assumes [-1., 1.] for all axes
-        // that means we need an affine transform to fix the z-axis
-        OPENGL_TO_WGPU_MATRIX * proj * view
-    }
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        Self {
-            view_pos: [0.0; 4],
-            view_proj: cgmath::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_pos = camera.eye.to_homogeneous().into();
-        self.view_proj = camera.build_view_projection_matrix().into();
     }
 }
 
