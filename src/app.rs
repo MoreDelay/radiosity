@@ -152,7 +152,7 @@ struct State {
     camera_bind_group: wgpu::BindGroup,
     light: light::Light,
     light_bind_group: wgpu::BindGroup,
-    light_render_pipeline: wgpu::RenderPipeline,
+    light_render_pipeline_layout: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -348,7 +348,7 @@ impl State {
             shader,
         );
 
-        let light_render_pipeline = {
+        let light_render_pipeline_layout = {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
@@ -372,7 +372,7 @@ impl State {
 
         let model_path = PathBuf::from("./resources/cube/cube.obj");
         let obj_model =
-            model::load_model(&model_path, &device, &queue, &texture_bind_group_layout).unwrap();
+            model::Model::load(&model_path, &device, &queue, texture_bind_group_layout).unwrap();
         const SPACE_BETWEEN: f32 = 3.0;
 
         let instances = (0..NUM_INSTANCES_PER_ROW)
@@ -423,7 +423,7 @@ impl State {
             depth_texture,
             light,
             light_bind_group,
-            light_render_pipeline,
+            light_render_pipeline_layout,
         }
     }
 
@@ -509,7 +509,7 @@ impl State {
             timestamp_writes: None,
         });
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        render_pass.set_pipeline(&self.light_render_pipeline);
+        render_pass.set_pipeline(&self.light_render_pipeline_layout);
         render_pass.draw_light_model(
             &self.obj_model,
             &self.camera_bind_group,
