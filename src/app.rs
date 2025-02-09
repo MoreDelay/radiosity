@@ -123,7 +123,7 @@ impl ApplicationHandler for App {
 }
 
 impl App {
-    pub async fn run() -> Result<()> {
+    pub fn run() -> Result<()> {
         let event_loop = EventLoop::new()?;
         // use Poll when you want to redraw continuously
         event_loop.set_control_flow(ControlFlow::Wait);
