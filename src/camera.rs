@@ -1,9 +1,9 @@
-use wgpu::util::DeviceExt;
+use crate::render::{CameraRaw, GPUTransfer};
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDim(u32, u32);
 
-pub struct CameraParams {
+pub struct Camera {
     eye: cgmath::Point3<f32>,
     dir: cgmath::Vector3<f32>,
     up: cgmath::Vector3<f32>,
@@ -14,19 +14,7 @@ pub struct CameraParams {
     frame: FrameDim,
 }
 
-pub struct Camera {
-    pub params: CameraParams,
-    buffer: wgpu::Buffer,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CameraUniform {
-    view_pos: [f32; 4],
-    view_proj: [[f32; 4]; 4],
-}
-
-impl CameraParams {
+impl Camera {
     pub fn new(
         eye: cgmath::Point3<f32>,
         dir: cgmath::Vector3<f32>,
@@ -75,35 +63,15 @@ impl CameraParams {
     }
 }
 
-impl Camera {
-    pub fn new(device: &wgpu::Device, params: CameraParams) -> Self {
-        let camera_uniform = CameraUniform::new(&params);
+// Safety: CameraRaw restricts view_pos to last value != 0
+// and view_proj to row major matrix with bottom right != 0
+unsafe impl GPUTransfer for Camera {
+    type Raw = CameraRaw;
+    fn to_raw(&self) -> Self::Raw {
+        let view_pos = self.eye.to_homogeneous().into();
+        let view_proj = self.build_view_projection_matrix().into();
 
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[camera_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        Self { params, buffer }
-    }
-
-    pub fn get_binding_resource(&self) -> wgpu::BindingResource<'_> {
-        self.buffer.as_entire_binding()
-    }
-
-    pub fn update_frame(&mut self, queue: &wgpu::Queue, frame_size: FrameDim) {
-        self.params.update_frame(frame_size);
-        let camera_uniform = CameraUniform::new(&self.params);
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[camera_uniform]));
-    }
-}
-
-impl CameraUniform {
-    pub fn new(params: &CameraParams) -> Self {
-        let view_pos = params.eye.to_homogeneous().into();
-        let view_proj = params.build_view_projection_matrix().into();
-
-        Self {
+        Self::Raw {
             view_pos,
             view_proj,
         }
