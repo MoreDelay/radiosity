@@ -48,20 +48,16 @@ pub struct LightRaw {
     pub _padding2: u32,
 }
 
-/// this is very unsafe
-///
 /// # Safety
-///
 /// Values copied over into raw format MUST match the expectation of the raw format
-pub unsafe trait GPUTransfer {
+pub unsafe trait GpuTransfer {
     type Raw: Debug + Copy + Clone + bytemuck::Pod + bytemuck::Zeroable;
     fn to_raw(&self) -> Self::Raw;
 }
 
 /// # Safety
-///
 /// Slice MUST match with resulting TextureFormat and sizes in Extend3d
-pub unsafe trait GPUTransferIndexed {
+pub unsafe trait GpuTransferTexture {
     fn to_raw_indexed(&self) -> (&[u8], wgpu::TextureFormat, wgpu::Extent3d);
 
     fn create_texture(

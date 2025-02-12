@@ -1,4 +1,4 @@
-use crate::render::{CameraRaw, GPUTransfer};
+use crate::render::{CameraRaw, GpuTransfer};
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDim(u32, u32);
@@ -65,7 +65,7 @@ impl Camera {
 
 // Safety: CameraRaw restricts view_pos to last value != 0
 // and view_proj to row major matrix with bottom right != 0
-unsafe impl GPUTransfer for Camera {
+unsafe impl GpuTransfer for Camera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
         let view_pos = self.eye.to_homogeneous().into();

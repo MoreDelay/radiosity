@@ -4,7 +4,7 @@ use anyhow::Context;
 use cgmath::{EuclideanSpace, Zero};
 use image::ImageReader;
 
-use crate::render::{GPUTransfer, GPUTransferIndexed, InstanceRaw, VertexRaw};
+use crate::render::{GpuTransfer, GpuTransferTexture, InstanceRaw, VertexRaw};
 
 pub const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -295,7 +295,7 @@ impl Mesh {
 }
 
 // Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels
-unsafe impl GPUTransferIndexed for ColorTexture {
+unsafe impl GpuTransferTexture for ColorTexture {
     fn to_raw_indexed(&self) -> (&[u8], wgpu::TextureFormat, wgpu::Extent3d) {
         let Self(image) = self;
         let dimensions = image.dimensions();
@@ -309,7 +309,7 @@ unsafe impl GPUTransferIndexed for ColorTexture {
 }
 
 // Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels
-unsafe impl GPUTransferIndexed for NormalTexture {
+unsafe impl GpuTransferTexture for NormalTexture {
     fn to_raw_indexed(&self) -> (&[u8], wgpu::TextureFormat, wgpu::Extent3d) {
         let Self(image) = self;
         let dimensions = image.dimensions();
@@ -322,7 +322,7 @@ unsafe impl GPUTransferIndexed for NormalTexture {
     }
 }
 
-unsafe impl GPUTransfer for Vertex {
+unsafe impl GpuTransfer for Vertex {
     type Raw = VertexRaw;
     fn to_raw(&self) -> Self::Raw {
         Self::Raw {
@@ -337,7 +337,7 @@ unsafe impl GPUTransfer for Vertex {
 
 // Safety: InstanceRaw restricts model to a row-major matrix with bottom right != 0
 // and normal to the the same as top left 3x3 matrix of model
-unsafe impl GPUTransfer for Instance {
+unsafe impl GpuTransfer for Instance {
     type Raw = InstanceRaw;
     fn to_raw(&self) -> Self::Raw {
         let model = (cgmath::Matrix4::from_translation(self.position)

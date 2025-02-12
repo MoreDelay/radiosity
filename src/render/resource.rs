@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use super::{CameraRaw, GPUTransfer, GPUTransferIndexed, InstanceRaw, LightRaw, VertexRaw};
+use super::{CameraRaw, GpuTransfer, GpuTransferTexture, InstanceRaw, LightRaw, VertexRaw};
 
 pub struct TextureBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct CameraBindGroupLayout(pub wgpu::BindGroupLayout);
@@ -130,8 +130,8 @@ impl MaterialBindingCN {
         label: Option<&str>,
     ) -> Self
     where
-        C: GPUTransferIndexed,
-        N: GPUTransferIndexed,
+        C: GpuTransferTexture,
+        N: GpuTransferTexture,
     {
         let color = color_texture.create_texture(device, queue, label);
         let normal = normal_texture.create_texture(device, queue, label);
@@ -168,7 +168,7 @@ impl MaterialBindingCN {
 }
 
 impl CameraBinding {
-    pub fn new<T: GPUTransfer<Raw = CameraRaw>>(
+    pub fn new<T: GpuTransfer<Raw = CameraRaw>>(
         device: &wgpu::Device,
         layout: &CameraBindGroupLayout,
         data: &T,
@@ -192,14 +192,14 @@ impl CameraBinding {
         Self { bind_group, buffer }
     }
 
-    pub fn update<T: GPUTransfer>(&self, queue: &wgpu::Queue, data: &T) {
+    pub fn update<T: GpuTransfer<Raw = CameraRaw>>(&self, queue: &wgpu::Queue, data: &T) {
         let raw_data = data.to_raw();
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[raw_data]));
     }
 }
 
 impl LightBinding {
-    pub fn new<T: GPUTransfer<Raw = LightRaw>>(
+    pub fn new<T: GpuTransfer<Raw = LightRaw>>(
         device: &wgpu::Device,
         layout: &LightBindGroupLayout,
         data: &T,
@@ -223,7 +223,7 @@ impl LightBinding {
         Self { bind_group, buffer }
     }
 
-    pub fn update<T: GPUTransfer>(&self, queue: &wgpu::Queue, data: T) {
+    pub fn update<T: GpuTransfer<Raw = LightRaw>>(&self, queue: &wgpu::Queue, data: T) {
         let raw_data = data.to_raw();
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[raw_data]));
     }
@@ -237,13 +237,10 @@ impl MeshBuffer {
         label: Option<&str>,
     ) -> Self
     where
-        V: GPUTransfer<Raw = VertexRaw>,
+        V: GpuTransfer<Raw = VertexRaw>,
         T: Copy + Into<(u32, u32, u32)>,
     {
-        let raw_vertices = vertices
-            .iter()
-            .map(<V as GPUTransfer>::to_raw)
-            .collect::<Vec<_>>();
+        let raw_vertices = vertices.iter().map(|v| v.to_raw()).collect::<Vec<_>>();
 
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s:?} Vertex Buffer")).as_deref(),
@@ -272,16 +269,13 @@ impl MeshBuffer {
 }
 
 impl InstanceBuffer {
-    pub fn new<T: GPUTransfer<Raw = InstanceRaw>>(
+    pub fn new<T: GpuTransfer<Raw = InstanceRaw>>(
         device: &wgpu::Device,
         instances: &[T],
         label: Option<&str>,
     ) -> Self {
         let num_instances = instances.len() as u32;
-        let raw_instances = instances
-            .iter()
-            .map(<T as GPUTransfer>::to_raw)
-            .collect::<Vec<_>>();
+        let raw_instances = instances.iter().map(|i| i.to_raw()).collect::<Vec<_>>();
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s:?} Instance Buffer")).as_deref(),
