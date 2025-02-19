@@ -1,7 +1,7 @@
-use crate::render::{CameraRaw, GpuTransfer};
+use crate::render::layout::{CameraRaw, GpuTransfer};
 
 #[derive(Debug, Copy, Clone)]
-pub struct FrameDim(u32, u32);
+pub struct FrameDim(pub u32, pub u32);
 
 pub struct Camera {
     eye: cgmath::Point3<f32>,

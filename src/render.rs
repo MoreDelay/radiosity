@@ -1,47 +1,45 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use pipeline::{LightPipeline, ScenePipeline};
-use resource::{InstanceBuffer, MaterialBindingCN, MeshBuffer};
-use winit::{event::WindowEvent, window::Window};
+use resource::{InstanceBuffer, MaterialBindingCN};
+use winit::window::Window;
 
-use cgmath::{EuclideanSpace, InnerSpace, Rotation3, Zero};
+use crate::camera;
 
-use crate::{camera, light, model, texture};
-
-mod layout;
+pub mod layout;
 mod pipeline;
 mod resource;
 
-pub use layout::*;
+use layout::*;
 
-pub struct RenderState {
-    pub paused: bool,
-    last_time: std::time::Instant,
+pub struct RenderStateInit {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    pub size: winit::dpi::PhysicalSize<u32>,
-    pub window: Arc<Window>,
+    size: winit::dpi::PhysicalSize<u32>,
+    depth_texture: resource::Texture,
+}
+
+pub struct SceneRenderState {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    size: winit::dpi::PhysicalSize<u32>,
     scene_pipeline: ScenePipeline,
-    #[allow(unused)]
-    obj_model: model::Model,
     mesh_buffer: resource::MeshBuffer,
     material_binding: resource::MaterialBindingCN,
-    #[allow(unused)]
-    instances: Vec<model::Instance>,
     instance_buffer: resource::InstanceBuffer,
-    depth_texture: texture::Texture,
-    camera: camera::Camera,
+    depth_texture: resource::Texture,
     camera_binding: resource::CameraBinding,
-    light: light::Light,
     light_binding: resource::LightBinding,
     light_pipeline: LightPipeline,
 }
 
-impl RenderState {
-    pub async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
+impl RenderStateInit {
+    pub async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         // handle to create adapters and surfaces
@@ -98,36 +96,58 @@ impl RenderState {
         };
 
         let depth_texture =
-            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
+            resource::Texture::create_depth_texture(&device, &config, "depth_texture");
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            depth_texture,
+        }
+    }
+
+    pub fn get_frame_dim(&self) -> camera::FrameDim {
+        (self.config.width, self.config.height).into()
+    }
+}
+
+impl SceneRenderState {
+    pub fn create<C, L, M, I, T, N>(
+        init: RenderStateInit,
+        camera: &C,
+        light: &L,
+        mesh: &M,
+        instances: &I,
+        color_texture: &T,
+        normal_texture: &N,
+    ) -> anyhow::Result<Self>
+    where
+        C: GpuTransfer<Raw = CameraRaw>,
+        L: GpuTransfer<Raw = LightRaw>,
+        M: GpuTransfer<Raw = TriangleBufferRaw>,
+        I: GpuTransfer<Raw = InstanceBufferRaw>,
+        T: GpuTransferTexture,
+        N: GpuTransferTexture,
+    {
+        let RenderStateInit {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+            depth_texture,
+        } = init;
 
         let texture_layout = resource::TextureBindGroupLayout::new(&device);
 
-        let eye: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
-        let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
-        let up = cgmath::Vector3::unit_y();
-        let fovy = 45.0;
-        let znear = 0.1;
-        let zfar = 100.0;
-        let frame_size = (config.width, config.height).into();
-        let dir = target - eye;
-        let camera = camera::Camera::new(eye, dir, up, fovy, znear, zfar, frame_size);
-
         let camera_layout = resource::CameraBindGroupLayout::new(&device);
         let camera_binding =
-            resource::CameraBinding::new(&device, &camera_layout, &camera, Some("Single"));
-
-        let position = [2., 2., 2.].into();
-        let color = light::Color {
-            r: 255,
-            g: 255,
-            b: 255,
-            a: 255,
-        };
-        let light = light::Light::new(position, color);
+            resource::CameraBinding::new(&device, &camera_layout, camera, Some("Single"));
 
         let light_layout = resource::LightBindGroupLayout::new(&device);
         let light_binding =
-            resource::LightBinding::new(&device, &light_layout, &light, Some("Single"));
+            resource::LightBinding::new(&device, &light_layout, light, Some("Single"));
 
         let scene_pipeline = ScenePipeline::new(
             &device,
@@ -140,19 +160,7 @@ impl RenderState {
         let light_pipeline =
             LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
 
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let model_path = root.join("resources/cube/cube.obj");
-        let obj_model = model::Model::load(&model_path).unwrap();
-        let single_model = &obj_model.meshes[0];
-        let mesh_buffer = MeshBuffer::new(
-            &device,
-            &single_model.vertices,
-            &single_model.triangles,
-            Some("Cube"),
-        );
-        let single_material = &obj_model.materials[0];
-        let color_texture = &single_material.color_texture;
-        let normal_texture = &single_material.normal_texture;
+        let mesh_buffer = resource::MeshBuffer::new(&device, mesh, Some("Single"));
 
         let texture_layout = resource::TextureBindGroupLayout::new(&device);
         let material_binding = MaterialBindingCN::new(
@@ -164,94 +172,50 @@ impl RenderState {
             Some("Cube"),
         );
 
-        const SPACE_BETWEEN: f32 = 3.0;
-        let instances = (0..model::NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..model::NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
-                    let z = SPACE_BETWEEN * (z as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
-
-                    let position = cgmath::Vector3::new(x, 0.0, z);
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
-                    };
-                    model::Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_buffer = InstanceBuffer::new(&device, &instances, Some("Grid"));
-
-        let paused = false;
-        let last_time = std::time::Instant::now();
+        let instance_buffer = InstanceBuffer::new(&device, instances, Some("Grid"));
 
         Ok(Self {
-            paused,
-            last_time,
             surface,
             device,
             queue,
             config,
             size,
-            window,
-            obj_model,
-            instances,
             instance_buffer,
             depth_texture,
             camera_binding,
             light_binding,
             scene_pipeline,
             light_pipeline,
-            camera,
-            light,
             mesh_buffer,
             material_binding,
         })
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: Option<winit::dpi::PhysicalSize<u32>>) {
+        let new_size = new_size.unwrap_or(self.size);
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
             // resize depth texture
-            self.depth_texture =
-                texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
-            let frame_size = (new_size.width, new_size.height).into();
-            self.camera.update_frame(frame_size);
-            self.camera_binding.update(&self.queue, &self.camera);
+            self.depth_texture = resource::Texture::create_depth_texture(
+                &self.device,
+                &self.config,
+                "depth_texture",
+            );
         }
     }
 
-    pub fn check_completed(&mut self, _event: &WindowEvent) -> bool {
-        false
+    pub fn update_light<T: GpuTransfer<Raw = LightRaw>>(&self, data: &T) {
+        self.light_binding.update(&self.queue, data);
     }
 
-    pub fn update(&mut self) {
-        let elapsed = self.last_time.elapsed();
-        let elapsed = elapsed.as_secs_f64();
-        let fps = 1. / elapsed;
-        self.last_time = std::time::Instant::now();
-        println!("FPS: {fps}");
-
-        if self.paused {
-            return;
-        }
-        let old_pos = self.light.pos.to_vec();
-        let new_pos =
-            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(0.1))
-                * old_pos;
-        self.light.pos = cgmath::Point3::from_vec(new_pos);
-        self.light_binding.update(&self.queue, self.light);
+    pub fn update_camera<T: GpuTransfer<Raw = CameraRaw>>(&self, data: &T) {
+        self.camera_binding.update(&self.queue, data);
     }
 
-    pub fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
         // blocks until surface provides render target
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -296,6 +260,8 @@ impl RenderState {
             timestamp_writes: None,
         });
         render_pass.set_vertex_buffer(1, self.instance_buffer.buffer.slice(..));
+
+        // light pass
         render_pass.set_pipeline(&self.light_pipeline.0);
         render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
         render_pass.set_index_buffer(
@@ -306,12 +272,7 @@ impl RenderState {
         render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
         render_pass.draw_indexed(0..self.mesh_buffer.num_indices, 0, 0..1);
 
-        // render_pass.draw_light_model(
-        //     &self.obj_model,
-        //     &self.camera_bind_group,
-        //     &self.light_bind_group,
-        // );
-
+        // scene pass
         render_pass.set_pipeline(&self.scene_pipeline.0);
         render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
         render_pass.set_index_buffer(
@@ -326,12 +287,6 @@ impl RenderState {
             0,
             0..self.instance_buffer.num_instances,
         );
-        // render_pass.draw_model_instanced(
-        //     &self.obj_model,
-        //     0..self.instances.len() as u32,
-        //     &self.camera_bind_group,
-        //     &self.light_bind_group,
-        // );
 
         // render pass recording ends when dropped
         drop(render_pass);

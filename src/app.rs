@@ -9,12 +9,11 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::{render::RenderState, scene::SceneState};
+use crate::scene::SceneState;
 
 #[derive(Default)]
 pub struct App {
     window: Option<Arc<Window>>,
-    render: Option<RenderState>,
     scene: Option<SceneState>,
 }
 
@@ -27,9 +26,8 @@ impl ApplicationHandler for App {
                     .unwrap(),
             );
             self.window = Some(window.clone());
-            let state = pollster::block_on(RenderState::new(window.clone()))
-                .expect("should create new scene");
-            self.render = Some(state);
+            let scene = SceneState::new(window.clone());
+            self.scene = Some(scene);
         }
     }
 
@@ -41,15 +39,13 @@ impl ApplicationHandler for App {
     ) {
         let Self {
             window: Some(window),
-            render: Some(state),
-            scene: None,
+            scene: Some(scene),
         } = self
         else {
-            println!("unreachable? no window or state on window_event");
-            return;
+            unreachable!("window and scene state should always be available on window_event")
         };
 
-        if window_id != state.window.id() || state.check_completed(&event) {
+        if window_id != window.id() {
             return;
         }
 
@@ -73,10 +69,10 @@ impl ApplicationHandler for App {
                     state: ElementState::Pressed,
                     ..
                 } => {
-                    state.paused ^= true;
+                    let paused = scene.toggle_pause();
                     println!(
                         "toggle pause: {}",
-                        if state.paused { "paused" } else { "running" }
+                        if paused { "paused" } else { "running" }
                     );
                 }
                 _ => (),
@@ -84,12 +80,12 @@ impl ApplicationHandler for App {
             RedrawRequested => {
                 // request another redraw after this
                 window.request_redraw();
-                state.update();
+                scene.step();
 
                 use wgpu::SurfaceError::*;
-                match state.render() {
+                match scene.draw() {
                     Ok(()) => {}
-                    Err(Lost | Outdated) => state.resize(state.size),
+                    Err(Lost | Outdated) => scene.resize_window(None),
                     Err(OutOfMemory) => {
                         log::error!("OutOfMemory");
                         event_loop.exit();
@@ -99,7 +95,9 @@ impl ApplicationHandler for App {
                     }
                 }
             }
-            Resized(size) => state.resize(size),
+            Resized(size) => {
+                scene.resize_window(Some(size));
+            }
             _ => (),
         }
     }

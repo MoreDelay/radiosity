@@ -1,13 +1,15 @@
 use wgpu::util::DeviceExt;
 
-use super::{CameraRaw, GpuTransfer, GpuTransferTexture, InstanceRaw, LightRaw, VertexRaw};
+use super::{
+    CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, TriangleBufferRaw,
+};
 
 pub struct TextureBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct CameraBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct LightBindGroupLayout(pub wgpu::BindGroupLayout);
 
 pub struct Texture {
-    #[allow(unused)]
+    #[expect(unused)]
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
@@ -15,9 +17,9 @@ pub struct Texture {
 
 pub struct MaterialBindingCN {
     pub bind_group: wgpu::BindGroup,
-    #[allow(unused)]
+    #[expect(unused)]
     pub color: Texture,
-    #[allow(unused)]
+    #[expect(unused)]
     pub normal: Texture,
 }
 pub struct CameraBinding {
@@ -37,6 +39,56 @@ pub struct MeshBuffer {
 pub struct InstanceBuffer {
     pub buffer: wgpu::Buffer,
     pub num_instances: u32,
+}
+
+impl Texture {
+    pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub fn create_depth_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        label: &str,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: config.width.max(1),
+            height: config.height.max(1),
+            depth_or_array_layers: 1,
+        };
+        let desc = wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: Self::DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+        let texture = device.create_texture(&desc);
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // technically, we do not need a sampler, but required by our current struct
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 100.0,
+            // compare function would be used as a filter / modulation for some other operation
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
 }
 
 impl TextureBindGroupLayout {
@@ -168,12 +220,15 @@ impl MaterialBindingCN {
 }
 
 impl CameraBinding {
-    pub fn new<T: GpuTransfer<Raw = CameraRaw>>(
+    pub fn new<C>(
         device: &wgpu::Device,
         layout: &CameraBindGroupLayout,
-        data: &T,
+        data: &C,
         label: Option<&str>,
-    ) -> Self {
+    ) -> Self
+    where
+        C: GpuTransfer<Raw = CameraRaw>,
+    {
         let raw_data = data.to_raw();
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -192,19 +247,25 @@ impl CameraBinding {
         Self { bind_group, buffer }
     }
 
-    pub fn update<T: GpuTransfer<Raw = CameraRaw>>(&self, queue: &wgpu::Queue, data: &T) {
+    pub fn update<C>(&self, queue: &wgpu::Queue, data: &C)
+    where
+        C: GpuTransfer<Raw = CameraRaw>,
+    {
         let raw_data = data.to_raw();
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[raw_data]));
     }
 }
 
 impl LightBinding {
-    pub fn new<T: GpuTransfer<Raw = LightRaw>>(
+    pub fn new<L>(
         device: &wgpu::Device,
         layout: &LightBindGroupLayout,
-        data: &T,
+        data: &L,
         label: Option<&str>,
-    ) -> Self {
+    ) -> Self
+    where
+        L: GpuTransfer<Raw = LightRaw>,
+    {
         let raw_data = data.to_raw();
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -223,38 +284,29 @@ impl LightBinding {
         Self { bind_group, buffer }
     }
 
-    pub fn update<T: GpuTransfer<Raw = LightRaw>>(&self, queue: &wgpu::Queue, data: T) {
+    pub fn update<L>(&self, queue: &wgpu::Queue, data: &L)
+    where
+        L: GpuTransfer<Raw = LightRaw>,
+    {
         let raw_data = data.to_raw();
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[raw_data]));
     }
 }
 
 impl MeshBuffer {
-    pub fn new<V, T>(
-        device: &wgpu::Device,
-        vertices: &[V],
-        indices: &[T],
-        label: Option<&str>,
-    ) -> Self
+    pub fn new<M>(device: &wgpu::Device, mesh: &M, label: Option<&str>) -> Self
     where
-        V: GpuTransfer<Raw = VertexRaw>,
-        T: Copy + Into<(u32, u32, u32)>,
+        M: GpuTransfer<Raw = TriangleBufferRaw>,
     {
-        let raw_vertices = vertices.iter().map(|v| v.to_raw()).collect::<Vec<_>>();
+        let TriangleBufferRaw { vertices, indices } = mesh.to_raw();
+        // let raw_vertices = vertices.iter().map(|v| v.to_raw()).collect::<Vec<_>>();
 
+        let num_indices = indices.len() as u32;
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s:?} Vertex Buffer")).as_deref(),
-            contents: bytemuck::cast_slice(&raw_vertices),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        let indices = indices
-            .iter()
-            .flat_map(|&t| {
-                let (a, b, c) = t.into();
-                [a, b, c]
-            })
-            .collect::<Vec<_>>();
-        let num_indices = indices.len() as u32;
         let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s:?} Index Buffer")).as_deref(),
             contents: bytemuck::cast_slice(&indices),
@@ -269,17 +321,16 @@ impl MeshBuffer {
 }
 
 impl InstanceBuffer {
-    pub fn new<T: GpuTransfer<Raw = InstanceRaw>>(
-        device: &wgpu::Device,
-        instances: &[T],
-        label: Option<&str>,
-    ) -> Self {
+    pub fn new<I>(device: &wgpu::Device, instances: &I, label: Option<&str>) -> Self
+    where
+        I: GpuTransfer<Raw = InstanceBufferRaw>,
+    {
+        let InstanceBufferRaw { instances } = instances.to_raw();
         let num_instances = instances.len() as u32;
-        let raw_instances = instances.iter().map(|i| i.to_raw()).collect::<Vec<_>>();
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s:?} Instance Buffer")).as_deref(),
-            contents: bytemuck::cast_slice(&raw_instances),
+            contents: bytemuck::cast_slice(&instances),
             usage: wgpu::BufferUsages::VERTEX,
         });
         Self {

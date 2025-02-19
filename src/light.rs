@@ -1,4 +1,4 @@
-use crate::render::{GpuTransfer, LightRaw};
+use crate::render::layout::{GpuTransfer, LightRaw};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Color {

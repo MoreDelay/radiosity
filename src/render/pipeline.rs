@@ -1,5 +1,3 @@
-use crate::texture;
-
 use super::{layout, resource};
 
 pub struct ScenePipeline(pub wgpu::RenderPipeline);
@@ -31,7 +29,7 @@ impl ScenePipeline {
             device,
             &layout,
             color_format,
-            Some(texture::Texture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
         );
@@ -64,7 +62,7 @@ impl LightPipeline {
             device,
             &layout,
             color_format,
-            Some(texture::Texture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
         );

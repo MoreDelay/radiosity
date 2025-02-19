@@ -1,10 +1,13 @@
-use std::{fs::File, io::BufReader, ops::Range, path::Path};
+use std::{fs::File, io::BufReader, path::Path};
 
 use anyhow::Context;
 use cgmath::{EuclideanSpace, Zero};
 use image::ImageReader;
 
-use crate::render::{GpuTransfer, GpuTransferTexture, InstanceRaw, VertexRaw};
+use crate::render::layout::{
+    GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, TextureRaw, TriangleBufferRaw,
+    VertexRaw,
+};
 
 pub const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -32,92 +35,23 @@ pub struct ColorTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 #[derive(Clone, Debug)]
 pub struct NormalTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
-#[allow(unused)]
-pub trait DrawModel<'a> {
-    fn draw_mesh(
-        &mut self,
-        mesh: &'a Mesh,
-        material: &'a MaterialCN,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-    fn draw_mesh_instanced(
-        &mut self,
-        mesh: &'a Mesh,
-        material: &'a MaterialCN,
-        instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-
-    fn draw_model(
-        &mut self,
-        model: &'a Model,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-    fn draw_model_instanced(
-        &mut self,
-        model: &'a Model,
-        instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-}
-
-#[allow(unused)]
-pub trait DrawLight<'a> {
-    fn draw_light_mesh(
-        &mut self,
-        mesh: &'a Mesh,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-    fn draw_light_mesh_instanced(
-        &mut self,
-        mesh: &'a Mesh,
-        instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-
-    fn draw_light_model(
-        &mut self,
-        model: &'a Model,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-    fn draw_light_model_instanced(
-        &mut self,
-        model: &'a Model,
-        instances: Range<u32>,
-        camera_bind_group: &'a wgpu::BindGroup,
-        light_bind_group: &'a wgpu::BindGroup,
-    );
-}
-
 pub struct Model {
-    pub meshes: Vec<Mesh>,
-    pub materials: Vec<MaterialCN>,
+    pub mesh: Mesh,
+    pub material: MaterialCN,
 }
 
 pub struct MaterialCN {
-    #[allow(unused)]
+    #[expect(unused)]
     pub name: String,
-    #[allow(unused)]
     pub color_texture: ColorTexture,
-    #[allow(unused)]
     pub normal_texture: NormalTexture,
 }
 
 pub struct Mesh {
-    #[allow(unused)]
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<Triplet>,
-    #[allow(unused)]
-    pub num_elements: u32,
-    #[allow(unused)]
-    pub material: usize,
+    #[expect(unused)]
+    pub material_id: usize,
 }
 
 impl MaterialCN {
@@ -152,7 +86,7 @@ impl Model {
         let obj_file = File::open(file_name).context("could not find obj")?;
         let mut obj_reader = BufReader::new(obj_file);
 
-        let (models, obj_materials) = tobj::load_obj_buf(
+        let (models, materials) = tobj::load_obj_buf(
             &mut obj_reader,
             &tobj::LoadOptions {
                 single_index: true,
@@ -167,17 +101,17 @@ impl Model {
             },
         )?;
 
-        let materials = obj_materials?
-            .iter()
+        let material = materials?
+            .first()
             .map(|mat| MaterialCN::load(root, mat))
-            .collect::<anyhow::Result<Vec<_>>>()?;
+            .ok_or(anyhow::anyhow!("no material"))??;
 
-        let meshes = models
-            .into_iter()
-            .map(|model| Mesh::new(&model))
-            .collect::<Vec<_>>();
+        let mesh = models
+            .first()
+            .map(Mesh::new)
+            .ok_or(anyhow::anyhow!("no mesh"))?;
 
-        Ok(Self { meshes, materials })
+        Ok(Self { mesh, material })
     }
 }
 
@@ -284,41 +218,84 @@ impl Mesh {
             v.tangent *= denom;
             v.bitangent *= denom;
         }
+        let material_id = model.mesh.material_id.unwrap_or(0);
 
         Mesh {
-            num_elements: model.mesh.indices.len() as u32,
-            material: model.mesh.material_id.unwrap_or(0),
             vertices,
             triangles,
+            material_id,
         }
     }
 }
 
-// Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels
-unsafe impl GpuTransferTexture for ColorTexture {
-    fn to_raw_indexed(&self) -> (&[u8], wgpu::TextureFormat, wgpu::Extent3d) {
+// Safety: Triangles consist of 3 indices, and we check that all indices stay within vertex slice.
+unsafe impl GpuTransfer for Mesh {
+    type Raw = TriangleBufferRaw;
+
+    fn to_raw(&self) -> Self::Raw {
+        assert!(self.vertices.len() <= <u32>::MAX as usize);
+        let upper_bound = self.vertices.len() as u32;
+        let indices = self
+            .triangles
+            .iter()
+            .flat_map(|&Triplet(i, j, k)| {
+                assert!(i < upper_bound);
+                assert!(j < upper_bound);
+                assert!(k < upper_bound);
+                [i, j, k]
+            })
+            .collect();
+        let data = self.vertices.iter().map(|v| v.to_raw()).collect();
+        TriangleBufferRaw {
+            vertices: data,
+            indices,
+        }
+    }
+}
+
+// Safety: No additional expectations beyond those of `InstanceRaw`.
+unsafe impl GpuTransfer for Vec<Instance> {
+    type Raw = InstanceBufferRaw;
+
+    fn to_raw(&self) -> Self::Raw {
+        let data = self.iter().map(|i| i.to_raw()).collect();
+        InstanceBufferRaw { instances: data }
+    }
+}
+
+// Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels.
+unsafe impl<'a> GpuTransferRef<'a> for ColorTexture {
+    type Raw = TextureRaw<'a>;
+
+    fn to_raw(&'a self) -> TextureRaw<'a> {
         let Self(image) = self;
+        let data = &image;
         let dimensions = image.dimensions();
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
-        (image, wgpu::TextureFormat::Rgba8UnormSrgb, size)
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        TextureRaw { data, format, size }
     }
 }
 
 // Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels
-unsafe impl GpuTransferTexture for NormalTexture {
-    fn to_raw_indexed(&self) -> (&[u8], wgpu::TextureFormat, wgpu::Extent3d) {
+unsafe impl<'a> GpuTransferRef<'a> for NormalTexture {
+    type Raw = TextureRaw<'a>;
+
+    fn to_raw(&'a self) -> TextureRaw<'a> {
         let Self(image) = self;
+        let data = &image;
         let dimensions = image.dimensions();
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
-        (image, wgpu::TextureFormat::Rgba8Unorm, size)
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        TextureRaw { data, format, size }
     }
 }
 
