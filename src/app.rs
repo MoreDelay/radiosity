@@ -90,9 +90,8 @@ impl ApplicationHandler for App {
                         log::error!("OutOfMemory");
                         event_loop.exit();
                     }
-                    Err(Timeout) => {
-                        log::warn!("Surface Timeout")
-                    }
+                    Err(Timeout) => log::warn!("Surface Timeout"),
+                    Err(Other) => log::warn!("Got a generic error"),
                 }
             }
             Resized(size) => {

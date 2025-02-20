@@ -43,7 +43,7 @@ impl RenderStateInit {
         let size = window.inner_size();
 
         // handle to create adapters and surfaces
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
         });
