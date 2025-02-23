@@ -261,17 +261,6 @@ impl SceneRenderState {
         });
         render_pass.set_vertex_buffer(1, self.instance_buffer.buffer.slice(..));
 
-        // light pass
-        render_pass.set_pipeline(&self.light_pipeline.0);
-        render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
-        render_pass.set_index_buffer(
-            self.mesh_buffer.indices.slice(..),
-            wgpu::IndexFormat::Uint32,
-        );
-        render_pass.set_bind_group(0, &self.camera_binding.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
-        render_pass.draw_indexed(0..self.mesh_buffer.num_indices, 0, 0..1);
-
         // scene pass
         render_pass.set_pipeline(&self.scene_pipeline.0);
         render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
@@ -279,14 +268,20 @@ impl SceneRenderState {
             self.mesh_buffer.indices.slice(..),
             wgpu::IndexFormat::Uint32,
         );
-        render_pass.set_bind_group(0, &self.material_binding.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.camera_binding.bind_group, &[]);
-        render_pass.set_bind_group(2, &self.light_binding.bind_group, &[]);
+        render_pass.set_bind_group(0, &self.camera_binding.bind_group, &[]);
+        render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
+        render_pass.set_bind_group(2, &self.material_binding.bind_group, &[]);
         render_pass.draw_indexed(
             0..self.mesh_buffer.num_indices,
             0,
             0..self.instance_buffer.num_instances,
         );
+
+        // light pass
+        render_pass.set_pipeline(&self.light_pipeline.0);
+        // reuse bindings from above, see:
+        // https://toji.dev/webgpu-best-practices/bind-groups#reusing-pipeline-layouts
+        render_pass.draw_indexed(0..self.mesh_buffer.num_indices, 0, 0..1);
 
         // render pass recording ends when dropped
         drop(render_pass);

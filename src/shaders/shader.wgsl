@@ -37,22 +37,23 @@ struct Light {
     color: vec3<f32>,
 }
 
-// group: first param in set_bind_group()
-// binding: from BindGroupLayout
+// order from least frequently changed to most frequently changed
+// and try to reuse order in many pipelines for fewer switching
+// https://toji.dev/webgpu-best-practices/bind-groups#reusing-pipeline-layouts
 @group(0) @binding(0)
-var t_diffuse: texture_2d<f32>;
-@group(0) @binding(1)
-var s_diffuse: sampler;
-@group(0) @binding(2)
-var t_normal: texture_2d<f32>;
-@group(0) @binding(3)
-var s_normal: sampler;
-
-@group(1) @binding(0)
 var<uniform> camera: Camera;
 
-@group(2) @binding(0)
+@group(1) @binding(0)
 var<uniform> light: Light;
+
+@group(2) @binding(0)
+var t_diffuse: texture_2d<f32>;
+@group(2) @binding(1)
+var s_diffuse: sampler;
+@group(2) @binding(2)
+var t_normal: texture_2d<f32>;
+@group(2) @binding(3)
+var s_normal: sampler;
 
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {

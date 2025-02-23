@@ -18,7 +18,7 @@ impl ScenePipeline {
     ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&texture_layout.0, &camera_layout.0, &light_layout.0],
+            bind_group_layouts: &[&camera_layout.0, &light_layout.0, &texture_layout.0],
             push_constant_ranges: &[],
         });
         let shader = wgpu::ShaderModuleDescriptor {
