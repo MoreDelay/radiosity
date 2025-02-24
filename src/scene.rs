@@ -8,6 +8,7 @@ use crate::{camera, light, model, render};
 pub struct SceneState {
     render_state: render::SceneRenderState,
     paused: bool,
+    simple: bool,
     last_time: std::time::Instant,
     #[expect(unused)]
     model: model::Model,
@@ -78,7 +79,10 @@ impl SceneState {
         )
         .unwrap();
 
+        let simple = false;
+
         SceneState {
+            simple,
             render_state,
             paused,
             last_time,
@@ -102,18 +106,25 @@ impl SceneState {
     }
 
     pub fn step(&mut self) {
+        const TARGET_FPS: f64 = 150.;
+        let minimum_elapsed = std::time::Duration::from_secs_f64(1. / TARGET_FPS);
+
         let elapsed = self.last_time.elapsed();
-        let elapsed = elapsed.as_secs_f64();
-        let fps = 1. / elapsed;
+        if elapsed < minimum_elapsed {
+            let sleep_duration = minimum_elapsed - elapsed;
+            std::thread::sleep(sleep_duration);
+        }
+        let elapsed = self.last_time.elapsed();
+        let _fps = 1. / elapsed.as_secs_f64();
         self.last_time = std::time::Instant::now();
-        println!("FPS: {fps}");
+        // println!("FPS: {_fps}");
 
         if self.paused {
             return;
         }
         let old_pos = self.light.pos.to_vec();
         let new_pos =
-            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(0.1))
+            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(1.))
                 * old_pos;
         self.light.pos = cgmath::Point3::from_vec(new_pos);
 
@@ -122,12 +133,18 @@ impl SceneState {
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.render_state.draw()
+        self.render_state.draw(self.simple)
     }
 
-    // returns true if paused after toggling
+    /// returns true if paused after toggling
     pub fn toggle_pause(&mut self) -> bool {
         self.paused ^= true;
         self.paused
+    }
+
+    /// returns true if simple on after toggling
+    pub fn toggle_simple(&mut self) -> bool {
+        self.simple ^= true;
+        self.simple
     }
 }

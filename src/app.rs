@@ -75,6 +75,17 @@ impl ApplicationHandler for App {
                         if paused { "paused" } else { "running" }
                     );
                 }
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::KeyS),
+                    state: ElementState::Pressed,
+                    ..
+                } => {
+                    let simple = scene.toggle_simple();
+                    println!(
+                        "toggle simple: {}",
+                        if simple { "simple" } else { "normal" }
+                    );
+                }
                 _ => (),
             },
             RedrawRequested => {

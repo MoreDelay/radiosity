@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use pipeline::{LightPipeline, ScenePipeline};
+use pipeline::{LightPipeline, ScenePipeline, SimpleScenePipeline};
 use resource::{InstanceBuffer, MaterialBindingCN};
 use winit::window::Window;
 
@@ -29,6 +29,7 @@ pub struct SceneRenderState {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     scene_pipeline: ScenePipeline,
+    simple_scene_pipeline: SimpleScenePipeline,
     mesh_buffer: resource::MeshBuffer,
     material_binding: resource::MaterialBindingCN,
     instance_buffer: resource::InstanceBuffer,
@@ -157,12 +158,17 @@ impl SceneRenderState {
             &light_layout,
         )?;
 
+        let simple_scene_pipeline = SimpleScenePipeline::new(
+            &device,
+            config.format,
+            &texture_layout,
+            &camera_layout,
+            &light_layout,
+        )?;
+
         let light_pipeline =
             LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
 
-        let mesh_buffer = resource::MeshBuffer::new(&device, mesh, Some("Single"));
-
-        let texture_layout = resource::TextureBindGroupLayout::new(&device);
         let material_binding = MaterialBindingCN::new(
             &device,
             &queue,
@@ -172,6 +178,7 @@ impl SceneRenderState {
             Some("Cube"),
         );
 
+        let mesh_buffer = resource::MeshBuffer::new(&device, mesh, Some("Single"));
         let instance_buffer = InstanceBuffer::new(&device, instances, Some("Grid"));
 
         Ok(Self {
@@ -185,6 +192,7 @@ impl SceneRenderState {
             camera_binding,
             light_binding,
             scene_pipeline,
+            simple_scene_pipeline,
             light_pipeline,
             mesh_buffer,
             material_binding,
@@ -215,7 +223,7 @@ impl SceneRenderState {
         self.camera_binding.update(&self.queue, data);
     }
 
-    pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
+    pub fn draw(&mut self, simple: bool) -> Result<(), wgpu::SurfaceError> {
         // blocks until surface provides render target
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -262,7 +270,11 @@ impl SceneRenderState {
         render_pass.set_vertex_buffer(1, self.instance_buffer.buffer.slice(..));
 
         // scene pass
-        render_pass.set_pipeline(&self.scene_pipeline.0);
+        if simple {
+            render_pass.set_pipeline(&self.simple_scene_pipeline.0);
+        } else {
+            render_pass.set_pipeline(&self.scene_pipeline.0);
+        }
         render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
         render_pass.set_index_buffer(
             self.mesh_buffer.indices.slice(..),
