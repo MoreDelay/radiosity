@@ -207,11 +207,11 @@ impl SceneRenderState {
         }
     }
 
-    pub fn update_light<T: GpuTransfer<Raw = LightRaw>>(&self, data: &T) {
+    pub fn update_light<L: GpuTransfer<Raw = LightRaw>>(&self, data: &L) {
         self.light_binding.update(&self.queue, data);
     }
 
-    pub fn update_camera<T: GpuTransfer<Raw = CameraRaw>>(&self, data: &T) {
+    pub fn update_camera<C: GpuTransfer<Raw = CameraRaw>>(&self, data: &C) {
         self.camera_binding.update(&self.queue, data);
     }
 

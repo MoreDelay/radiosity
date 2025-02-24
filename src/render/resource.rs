@@ -1,3 +1,6 @@
+use std::num::NonZeroU64;
+
+use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
 
 use super::{
@@ -173,16 +176,16 @@ impl LightBindGroupLayout {
 }
 
 impl MaterialBindingCN {
-    pub fn new<C, N>(
+    pub fn new<T, N>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &TextureBindGroupLayout,
-        color_texture: &C,
+        color_texture: &T,
         normal_texture: &N,
         label: Option<&str>,
     ) -> Self
     where
-        C: GpuTransferTexture,
+        T: GpuTransferTexture,
         N: GpuTransferTexture,
     {
         let color = color_texture.create_texture(device, queue, label);
@@ -251,8 +254,13 @@ impl CameraBinding {
     where
         C: GpuTransfer<Raw = CameraRaw>,
     {
+        // make sure size unwrap never panics
+        const_assert_ne!(std::mem::size_of::<CameraRaw>(), 0);
+        let size = NonZeroU64::try_from(std::mem::size_of::<CameraRaw>() as u64).unwrap();
+
+        let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
         let raw_data = data.to_raw();
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[raw_data]));
+        view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
     }
 }
 
@@ -288,8 +296,13 @@ impl LightBinding {
     where
         L: GpuTransfer<Raw = LightRaw>,
     {
+        // make sure size unwrap never panics
+        const_assert_ne!(std::mem::size_of::<LightRaw>(), 0);
+        let size = NonZeroU64::try_from(std::mem::size_of::<LightRaw>() as u64).unwrap();
+
+        let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
         let raw_data = data.to_raw();
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&[raw_data]));
+        view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
     }
 }
 
