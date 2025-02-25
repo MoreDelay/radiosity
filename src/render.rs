@@ -120,7 +120,7 @@ impl SceneRenderState {
         light: &L,
         mesh: &M,
         instances: &I,
-        color_texture: &T,
+        color_texture: Option<&T>,
         normal_texture: Option<&N>,
     ) -> anyhow::Result<Self>
     where

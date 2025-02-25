@@ -74,7 +74,7 @@ impl SceneState {
             &light,
             &model.mesh,
             &instances,
-            model.material.color_texture.as_ref().unwrap(),
+            model.material.color_texture.as_ref(),
             model.material.normal_texture.as_ref(),
         )
         .unwrap();

@@ -21,7 +21,7 @@ pub struct Texture {
 pub struct MaterialBinding {
     pub bind_group: wgpu::BindGroup,
     #[expect(unused)]
-    pub color: Texture,
+    pub color: Option<Texture>,
     #[expect(unused)]
     pub normal: Option<Texture>,
 }
@@ -180,7 +180,7 @@ impl MaterialBinding {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &TextureBindGroupLayout,
-        color_texture: &T,
+        color_texture: Option<&T>,
         normal_texture: Option<&N>,
         label: Option<&str>,
     ) -> Self
@@ -188,50 +188,44 @@ impl MaterialBinding {
         T: GpuTransferTexture,
         N: GpuTransferTexture,
     {
-        let color = color_texture.create_texture(device, queue, label);
-        let (bind_group, normal) = if let Some(normal_texture) = normal_texture {
-            let normal = normal_texture.create_texture(device, queue, label);
+        let color = color_texture.map(|t| t.create_texture(device, queue, label));
+        let color_entries = color.as_ref().map(|t| {
+            [
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&t.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&t.sampler),
+                },
+            ]
+        });
 
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label,
-                layout: &layout.0,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&color.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&color.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&normal.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&normal.sampler),
-                    },
-                ],
-            });
-            (bind_group, Some(normal))
-        } else {
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label,
-                layout: &layout.0,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&color.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&color.sampler),
-                    },
-                ],
-            });
-            (bind_group, None)
-        };
+        let normal = normal_texture.map(|t| t.create_texture(device, queue, label));
+        let normal_entries = normal.as_ref().map(|t| {
+            [
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&t.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&t.sampler),
+                },
+            ]
+        });
+
+        let entries: Vec<_> = [color_entries, normal_entries]
+            .into_iter()
+            .flatten() // filter missing materials
+            .flatten() // flatten [view, sampler] slices to single level
+            .collect();
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label,
+            layout: &layout.0,
+            entries: &entries,
+        });
 
         Self {
             bind_group,
