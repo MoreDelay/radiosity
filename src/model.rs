@@ -37,14 +37,14 @@ pub struct NormalTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
 pub struct Model {
     pub mesh: Mesh,
-    pub material: MaterialCN,
+    pub material: Material,
 }
 
-pub struct MaterialCN {
+pub struct Material {
     #[expect(unused)]
     pub name: String,
-    pub color_texture: ColorTexture,
-    pub normal_texture: NormalTexture,
+    pub color_texture: Option<ColorTexture>,
+    pub normal_texture: Option<NormalTexture>,
 }
 
 pub struct Mesh {
@@ -54,7 +54,7 @@ pub struct Mesh {
     pub material_id: usize,
 }
 
-impl MaterialCN {
+impl Material {
     pub fn load(root: &Path, mat: &tobj::Material) -> anyhow::Result<Self> {
         let diffuse_texture = mat
             .diffuse_texture
@@ -70,8 +70,8 @@ impl MaterialCN {
         let normal_texture = root.join(normal_texture);
         let normal_image = ImageReader::open(normal_texture)?.decode()?;
 
-        let color_texture = ColorTexture(diffuse_image.into());
-        let normal_texture = NormalTexture(normal_image.into());
+        let color_texture = Some(ColorTexture(diffuse_image.into()));
+        let normal_texture = Some(NormalTexture(normal_image.into()));
         Ok(Self {
             name: mat.name.to_string(),
             color_texture,
@@ -103,7 +103,7 @@ impl Model {
 
         let material = materials?
             .first()
-            .map(|mat| MaterialCN::load(root, mat))
+            .map(|mat| Material::load(root, mat))
             .ok_or(anyhow::anyhow!("no material"))??;
 
         let mesh = models

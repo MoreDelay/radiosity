@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use pipeline::{LightPipeline, ScenePipeline, SimpleScenePipeline};
-use resource::{InstanceBuffer, MaterialBindingCN};
+use resource::{InstanceBuffer, MaterialBinding};
 use winit::window::Window;
 
 use crate::camera;
@@ -31,7 +31,7 @@ pub struct SceneRenderState {
     scene_pipeline: ScenePipeline,
     simple_scene_pipeline: SimpleScenePipeline,
     mesh_buffer: resource::MeshBuffer,
-    material_binding: resource::MaterialBindingCN,
+    material_binding: resource::MaterialBinding,
     instance_buffer: resource::InstanceBuffer,
     depth_texture: resource::Texture,
     camera_binding: resource::CameraBinding,
@@ -121,7 +121,7 @@ impl SceneRenderState {
         mesh: &M,
         instances: &I,
         color_texture: &T,
-        normal_texture: &N,
+        normal_texture: Option<&N>,
     ) -> anyhow::Result<Self>
     where
         C: GpuTransfer<Raw = CameraRaw>,
@@ -169,7 +169,7 @@ impl SceneRenderState {
         let light_pipeline =
             LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
 
-        let material_binding = MaterialBindingCN::new(
+        let material_binding = MaterialBinding::new(
             &device,
             &queue,
             &texture_layout,

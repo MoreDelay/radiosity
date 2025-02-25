@@ -18,12 +18,12 @@ pub struct Texture {
     pub sampler: wgpu::Sampler,
 }
 
-pub struct MaterialBindingCN {
+pub struct MaterialBinding {
     pub bind_group: wgpu::BindGroup,
     #[expect(unused)]
     pub color: Texture,
     #[expect(unused)]
-    pub normal: Texture,
+    pub normal: Option<Texture>,
 }
 pub struct CameraBinding {
     pub bind_group: wgpu::BindGroup,
@@ -175,13 +175,13 @@ impl LightBindGroupLayout {
     }
 }
 
-impl MaterialBindingCN {
+impl MaterialBinding {
     pub fn new<T, N>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         layout: &TextureBindGroupLayout,
         color_texture: &T,
-        normal_texture: &N,
+        normal_texture: Option<&N>,
         label: Option<&str>,
     ) -> Self
     where
@@ -189,30 +189,49 @@ impl MaterialBindingCN {
         N: GpuTransferTexture,
     {
         let color = color_texture.create_texture(device, queue, label);
-        let normal = normal_texture.create_texture(device, queue, label);
+        let (bind_group, normal) = if let Some(normal_texture) = normal_texture {
+            let normal = normal_texture.create_texture(device, queue, label);
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label,
-            layout: &layout.0,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&color.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&color.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&normal.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&normal.sampler),
-                },
-            ],
-        });
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label,
+                layout: &layout.0,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&color.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&color.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&normal.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&normal.sampler),
+                    },
+                ],
+            });
+            (bind_group, Some(normal))
+        } else {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label,
+                layout: &layout.0,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&color.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&color.sampler),
+                    },
+                ],
+            });
+            (bind_group, None)
+        };
 
         Self {
             bind_group,

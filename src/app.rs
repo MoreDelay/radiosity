@@ -65,7 +65,7 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                 }
                 KeyEvent {
-                    physical_key: PhysicalKey::Code(KeyCode::Space),
+                    physical_key: PhysicalKey::Code(KeyCode::KeyP),
                     state: ElementState::Pressed,
                     ..
                 } => {
