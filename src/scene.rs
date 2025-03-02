@@ -24,8 +24,9 @@ impl SceneState {
 
         let pos: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
         let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
+        let distance = 10.;
         let frame = render_init.get_frame_dim();
-        let camera = camera::TargetCamera::new(pos, target, frame);
+        let camera = camera::TargetCamera::new(pos, target, distance, frame);
 
         let position = [2., 2., 2.].into();
         let color = light::Color {

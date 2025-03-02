@@ -1,4 +1,4 @@
-use cgmath::{ElementWise, InnerSpace, Rotation, Rotation2, Rotation3};
+use cgmath::{ElementWise, EuclideanSpace, InnerSpace, Rotation, Rotation2, Rotation3};
 
 use crate::render::layout::{CameraRaw, GpuTransfer};
 
@@ -8,6 +8,7 @@ pub struct FrameDim(pub u32, pub u32);
 pub struct TargetCamera {
     pos: cgmath::Point3<f32>,
     target: cgmath::Point3<f32>,
+    distance: f32,
     up: cgmath::Vector3<f32>,
     aspect: f32,
     fovy: f32,
@@ -17,8 +18,17 @@ pub struct TargetCamera {
 }
 
 impl TargetCamera {
-    pub fn new(pos: cgmath::Point3<f32>, target: cgmath::Point3<f32>, frame: FrameDim) -> Self {
+    pub fn new(
+        pos: cgmath::Point3<f32>,
+        target: cgmath::Point3<f32>,
+        distance: f32,
+        frame: FrameDim,
+    ) -> Self {
         let up = cgmath::Vector3::unit_y();
+
+        let from_target = pos - target;
+        let pos = cgmath::Point3::from_vec(from_target.normalize() * distance);
+        let pos = pos.add_element_wise(target);
 
         let FrameDim(width, height) = frame;
         let aspect = width as f32 / height as f32;
@@ -29,6 +39,7 @@ impl TargetCamera {
         Self {
             pos,
             target,
+            distance,
             up,
             aspect,
             fovy,
@@ -62,9 +73,16 @@ impl TargetCamera {
         let rotation = cgmath::Basis3::from_axis_angle(rotation_axis, angle);
 
         // rotate around target, so move target to origin and back again
-        let translated_pos = self.pos.sub_element_wise(self.target);
-        let rotated_pos = rotation.rotate_point(translated_pos);
-        self.pos = rotated_pos.add_element_wise(self.target);
+        let pos = self.pos.sub_element_wise(self.target);
+        let pos = rotation.rotate_point(pos);
+        let pos = pos.add_element_wise(self.target);
+
+        // correct for expected distance (precision errors)
+        let from_target = pos - self.target;
+        let pos = cgmath::Point3::from_vec(from_target.normalize() * self.distance);
+        let pos = pos.add_element_wise(self.target);
+
+        self.pos = pos;
     }
 
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
