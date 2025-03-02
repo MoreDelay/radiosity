@@ -22,15 +22,10 @@ impl SceneState {
     pub fn new(window: Arc<Window>) -> Self {
         let render_init = pollster::block_on(render::RenderStateInit::new(window));
 
-        let eye: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
+        let pos: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
         let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
-        let up = cgmath::Vector3::unit_y();
-        let fovy = 45.0;
-        let znear = 0.1;
-        let zfar = 100.0;
-        let dir = target - eye;
         let frame = render_init.get_frame_dim();
-        let camera = camera::Camera::new(eye, dir, up, fovy, znear, zfar, frame);
+        let camera = camera::Camera::new(pos, target, frame);
 
         let position = [2., 2., 2.].into();
         let color = light::Color {

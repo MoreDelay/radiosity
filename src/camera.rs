@@ -4,7 +4,7 @@ use crate::render::layout::{CameraRaw, GpuTransfer};
 pub struct FrameDim(pub u32, pub u32);
 
 pub struct Camera {
-    eye: cgmath::Point3<f32>,
+    pos: cgmath::Point3<f32>,
     dir: cgmath::Vector3<f32>,
     up: cgmath::Vector3<f32>,
     aspect: f32,
@@ -15,19 +15,17 @@ pub struct Camera {
 }
 
 impl Camera {
-    pub fn new(
-        eye: cgmath::Point3<f32>,
-        dir: cgmath::Vector3<f32>,
-        up: cgmath::Vector3<f32>,
-        fovy: f32,
-        znear: f32,
-        zfar: f32,
-        frame: FrameDim,
-    ) -> Self {
+    pub fn new(pos: cgmath::Point3<f32>, target: cgmath::Point3<f32>, frame: FrameDim) -> Self {
+        let dir = target - pos;
+        let up = cgmath::Vector3::unit_y();
+
         let aspect = 16. / 9.;
+        let fovy = 45.0;
+        let znear = 0.1;
+        let zfar = 100.0;
 
         Self {
-            eye,
+            pos,
             dir,
             up,
             aspect,
@@ -45,7 +43,7 @@ impl Camera {
     }
 
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_to_rh(self.eye, self.dir, self.up);
+        let view = cgmath::Matrix4::look_to_rh(self.pos, self.dir, self.up);
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
 
         // wgpu uses DirectX / Metal coordinates
@@ -68,7 +66,7 @@ impl Camera {
 unsafe impl GpuTransfer for Camera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
-        let view_pos = self.eye.to_homogeneous().into();
+        let view_pos = self.pos.to_homogeneous().into();
         let view_proj = self.build_view_projection_matrix().into();
 
         Self::Raw {
