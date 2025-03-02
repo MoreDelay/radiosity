@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, MouseButton, WindowEvent},
+    event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
@@ -136,7 +136,6 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                println!("clicked! start drag");
                 let Some(MouseState::OnScreen { pos, .. }) = mouse.take() else {
                     unreachable!("should have mouse on screen to get click event");
                 };
@@ -147,11 +146,21 @@ impl ApplicationHandler for App {
                 button: MouseButton::Left,
                 ..
             } => {
-                println!("released! stop drag");
                 let Some(MouseState::OnScreen { pos, .. }) = mouse.take() else {
                     unreachable!("should have mouse on screen to get click event");
                 };
                 *mouse = Some(MouseState::OnScreen { pos, drag: false });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let delta = match delta {
+                    MouseScrollDelta::LineDelta(_x, y) => y as f64,
+                    MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition { y, .. }) => y,
+                };
+                if delta > 0. {
+                    scene.go_near()
+                } else if delta < 0. {
+                    scene.go_away()
+                }
             }
 
             // interactions with keyboard

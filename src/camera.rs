@@ -85,6 +85,26 @@ impl TargetCamera {
         self.pos = pos;
     }
 
+    pub fn go_near(&mut self) {
+        const MIN_DISTANCE: f32 = 0.1;
+        // use exponential / logarithmic scale for scolling
+        self.distance = MIN_DISTANCE.max(self.distance - self.distance / 10.);
+
+        let from_target = self.pos - self.target;
+        let pos = cgmath::Point3::from_vec(from_target.normalize() * self.distance);
+        self.pos = pos.add_element_wise(self.target);
+    }
+
+    pub fn go_away(&mut self) {
+        const MAX_DISTANCE: f32 = 1000.;
+        // use exponential / logarithmic scale for scolling
+        self.distance = MAX_DISTANCE.min(self.distance + self.distance / 10.);
+
+        let from_target = self.pos - self.target;
+        let pos = cgmath::Point3::from_vec(from_target.normalize() * self.distance);
+        self.pos = pos.add_element_wise(self.target);
+    }
+
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         let dir = self.target - self.pos;
         let view = cgmath::Matrix4::look_to_rh(self.pos, dir, self.up);

@@ -133,6 +133,16 @@ impl SceneState {
         self.render_state.update_camera(&self.camera);
     }
 
+    pub fn go_near(&mut self) {
+        self.camera.go_near();
+        self.render_state.update_camera(&self.camera);
+    }
+
+    pub fn go_away(&mut self) {
+        self.camera.go_away();
+        self.render_state.update_camera(&self.camera);
+    }
+
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
         self.render_state.draw(self.simple)
     }
