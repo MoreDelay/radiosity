@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, KeyEvent, WindowEvent},
+    event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowId},
@@ -15,6 +15,18 @@ use crate::scene::SceneState;
 pub struct App {
     window: Option<Arc<Window>>,
     scene: Option<SceneState>,
+    mouse: Option<MouseState>,
+}
+
+#[derive(Copy, Clone, Debug)]
+struct ScreenPos {
+    x: f64,
+    y: f64,
+}
+
+enum MouseState {
+    OnScreen { pos: ScreenPos, drag: bool },
+    OutsideScreen { last_pos: ScreenPos },
 }
 
 impl ApplicationHandler for App {
@@ -40,6 +52,7 @@ impl ApplicationHandler for App {
         let Self {
             window: Some(window),
             scene: Some(scene),
+            mouse,
         } = self
         else {
             unreachable!("window and scene state should always be available on window_event")
@@ -49,13 +62,100 @@ impl ApplicationHandler for App {
             return;
         }
 
-        use WindowEvent::*;
         match event {
-            CloseRequested => {
+            // interactions with window
+            WindowEvent::CloseRequested => {
                 println!("The close button was pressed; stopping");
                 event_loop.exit();
             }
-            KeyboardInput { event, .. } => match event {
+            WindowEvent::RedrawRequested => {
+                // request another redraw after this
+                window.request_redraw();
+                scene.step();
+
+                use wgpu::SurfaceError::*;
+                match scene.draw() {
+                    Ok(()) => {}
+                    Err(Lost | Outdated) => scene.resize_window(None),
+                    Err(OutOfMemory) => {
+                        log::error!("OutOfMemory");
+                        event_loop.exit();
+                    }
+                    Err(Timeout) => log::warn!("Surface Timeout"),
+                    Err(Other) => log::warn!("Got a generic error"),
+                }
+            }
+            WindowEvent::Resized(size) => {
+                scene.resize_window(Some(size));
+            }
+
+            // interactions with mouse
+            WindowEvent::CursorLeft { .. } => {
+                let Some(MouseState::OnScreen { pos: last_pos, .. }) = mouse.take() else {
+                    unreachable!("last known state should have mouse on screen")
+                };
+                *mouse = Some(MouseState::OutsideScreen { last_pos });
+            }
+            WindowEvent::CursorEntered { .. } => {
+                let pos = match mouse.take() {
+                    None => ScreenPos { x: 0., y: 0. },
+                    Some(MouseState::OutsideScreen { last_pos }) => last_pos,
+                    Some(MouseState::OnScreen { .. }) => {
+                        unreachable!("mouse just entered and should not be already on screen")
+                    }
+                };
+                *mouse = Some(MouseState::OnScreen { pos, drag: false });
+            }
+            WindowEvent::CursorMoved {
+                position: winit::dpi::PhysicalPosition { x, y },
+                ..
+            } => {
+                let pos = ScreenPos { x, y };
+                let (last_pos, drag) = match mouse.take() {
+                    Some(MouseState::OnScreen { pos, drag }) => (pos, drag),
+                    None | Some(MouseState::OutsideScreen { .. }) => {
+                        unreachable!("should have mouse on screen to get move event")
+                    }
+                };
+                if drag {
+                    let from = cgmath::Point2 {
+                        x: last_pos.x as f32,
+                        y: last_pos.y as f32,
+                    };
+                    let to = cgmath::Point2 {
+                        x: pos.x as f32,
+                        y: pos.y as f32,
+                    };
+                    let vec = to - from;
+                    scene.drag_camera(vec);
+                }
+                *mouse = Some(MouseState::OnScreen { pos, drag });
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                println!("clicked! start drag");
+                let Some(MouseState::OnScreen { pos, .. }) = mouse.take() else {
+                    unreachable!("should have mouse on screen to get click event");
+                };
+                *mouse = Some(MouseState::OnScreen { pos, drag: true });
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                println!("released! stop drag");
+                let Some(MouseState::OnScreen { pos, .. }) = mouse.take() else {
+                    unreachable!("should have mouse on screen to get click event");
+                };
+                *mouse = Some(MouseState::OnScreen { pos, drag: false });
+            }
+
+            // interactions with keyboard
+            WindowEvent::KeyboardInput { event, .. } => match event {
                 KeyEvent {
                     physical_key: PhysicalKey::Code(key @ (KeyCode::Escape | KeyCode::KeyQ)),
                     state: ElementState::Pressed,
@@ -88,26 +188,7 @@ impl ApplicationHandler for App {
                 }
                 _ => (),
             },
-            RedrawRequested => {
-                // request another redraw after this
-                window.request_redraw();
-                scene.step();
 
-                use wgpu::SurfaceError::*;
-                match scene.draw() {
-                    Ok(()) => {}
-                    Err(Lost | Outdated) => scene.resize_window(None),
-                    Err(OutOfMemory) => {
-                        log::error!("OutOfMemory");
-                        event_loop.exit();
-                    }
-                    Err(Timeout) => log::warn!("Surface Timeout"),
-                    Err(Other) => log::warn!("Got a generic error"),
-                }
-            }
-            Resized(size) => {
-                scene.resize_window(Some(size));
-            }
             _ => (),
         }
     }

@@ -1,11 +1,13 @@
+use cgmath::{ElementWise, InnerSpace, Rotation, Rotation2, Rotation3};
+
 use crate::render::layout::{CameraRaw, GpuTransfer};
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDim(pub u32, pub u32);
 
-pub struct Camera {
+pub struct TargetCamera {
     pos: cgmath::Point3<f32>,
-    dir: cgmath::Vector3<f32>,
+    target: cgmath::Point3<f32>,
     up: cgmath::Vector3<f32>,
     aspect: f32,
     fovy: f32,
@@ -14,19 +16,19 @@ pub struct Camera {
     frame: FrameDim,
 }
 
-impl Camera {
+impl TargetCamera {
     pub fn new(pos: cgmath::Point3<f32>, target: cgmath::Point3<f32>, frame: FrameDim) -> Self {
-        let dir = target - pos;
         let up = cgmath::Vector3::unit_y();
 
-        let aspect = 16. / 9.;
+        let FrameDim(width, height) = frame;
+        let aspect = width as f32 / height as f32;
         let fovy = 45.0;
         let znear = 0.1;
         let zfar = 100.0;
 
         Self {
             pos,
-            dir,
+            target,
             up,
             aspect,
             fovy,
@@ -36,14 +38,38 @@ impl Camera {
         }
     }
 
-    pub fn update_frame(&mut self, frame_size: FrameDim) {
-        self.frame = frame_size;
-        let FrameDim(width, height) = frame_size;
+    pub fn update_frame(&mut self, frame: FrameDim) {
+        self.frame = frame;
+        let FrameDim(width, height) = frame;
         self.aspect = width as f32 / height as f32;
     }
 
+    pub fn rotate(&mut self, movement: cgmath::Vector2<f32>) {
+        let rot90 = cgmath::Rad(0.5 * std::f32::consts::PI);
+        let rot90 = cgmath::Basis2::from_angle(rot90);
+        let cgmath::Vector2 { x, y } = rot90.rotate_vector(movement);
+
+        let forward = (self.target - self.pos).normalize();
+        let forward = forward.normalize();
+        let right = forward.cross(self.up).normalize();
+        let up = right.cross(forward);
+
+        // image coordinate system starts at top left corner
+        // and y gets bigger when going down, so we need to invert y
+        let rotation_axis = (x * right - y * up).normalize();
+
+        let angle = cgmath::Rad(movement.magnitude()) / 100.;
+        let rotation = cgmath::Basis3::from_axis_angle(rotation_axis, angle);
+
+        // rotate around target, so move target to origin and back again
+        let translated_pos = self.pos.sub_element_wise(self.target);
+        let rotated_pos = rotation.rotate_point(translated_pos);
+        self.pos = rotated_pos.add_element_wise(self.target);
+    }
+
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_to_rh(self.pos, self.dir, self.up);
+        let dir = self.target - self.pos;
+        let view = cgmath::Matrix4::look_to_rh(self.pos, dir, self.up);
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
 
         // wgpu uses DirectX / Metal coordinates
@@ -63,7 +89,7 @@ impl Camera {
 
 // Safety: CameraRaw restricts view_pos to last value != 0
 // and view_proj to row major matrix with bottom right != 0
-unsafe impl GpuTransfer for Camera {
+unsafe impl GpuTransfer for TargetCamera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
         let view_pos = self.pos.to_homogeneous().into();

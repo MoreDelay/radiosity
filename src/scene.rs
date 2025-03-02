@@ -14,7 +14,7 @@ pub struct SceneState {
     model: model::Model,
     #[expect(unused)]
     instances: Vec<model::Instance>,
-    camera: camera::Camera,
+    camera: camera::TargetCamera,
     light: light::Light,
 }
 
@@ -25,7 +25,7 @@ impl SceneState {
         let pos: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
         let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
         let frame = render_init.get_frame_dim();
-        let camera = camera::Camera::new(pos, target, frame);
+        let camera = camera::TargetCamera::new(pos, target, frame);
 
         let position = [2., 2., 2.].into();
         let color = light::Color {
@@ -125,6 +125,11 @@ impl SceneState {
 
         self.render_state.update_light(&self.light);
         // self.render_state.update_camera(&self.camera);
+    }
+
+    pub fn drag_camera(&mut self, movement: cgmath::Vector2<f32>) {
+        self.camera.rotate(movement);
+        self.render_state.update_camera(&self.camera);
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
