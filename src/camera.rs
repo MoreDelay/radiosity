@@ -17,6 +17,26 @@ pub struct TargetCamera {
     frame: FrameDim,
 }
 
+pub struct FirstPersonCamera {
+    pos: cgmath::Point3<f32>,
+    dir: cgmath::Vector3<f32>,
+    speed: f32,
+    up: cgmath::Vector3<f32>,
+    aspect: f32,
+    fovy: f32,
+    znear: f32,
+    zfar: f32,
+    frame: FrameDim,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Direction {
+    W,
+    A,
+    S,
+    D,
+}
+
 impl TargetCamera {
     pub fn new(
         pos: cgmath::Point3<f32>,
@@ -61,7 +81,6 @@ impl TargetCamera {
         let cgmath::Vector2 { x, y } = rot90.rotate_vector(movement);
 
         let forward = (self.target - self.pos).normalize();
-        let forward = forward.normalize();
         let right = forward.cross(self.up).normalize();
         let up = right.cross(forward);
 
@@ -77,9 +96,9 @@ impl TargetCamera {
         let pos = rotation.rotate_point(pos);
         let pos = pos.add_element_wise(self.target);
 
-        // correct for expected distance (precision errors)
-        let from_target = pos - self.target;
-        let pos = cgmath::Point3::from_vec(from_target.normalize() * self.distance);
+        // correct for expected distance (precision errors, overshoot correction)
+        let from_target = (pos - self.target).normalize();
+        let pos = cgmath::Point3::from_vec(from_target * self.distance);
         let pos = pos.add_element_wise(self.target);
 
         self.pos = pos;
@@ -128,6 +147,101 @@ impl TargetCamera {
 // Safety: CameraRaw restricts view_pos to last value != 0
 // and view_proj to row major matrix with bottom right != 0
 unsafe impl GpuTransfer for TargetCamera {
+    type Raw = CameraRaw;
+    fn to_raw(&self) -> Self::Raw {
+        let view_pos = self.pos.to_homogeneous().into();
+        let view_proj = self.build_view_projection_matrix().into();
+
+        Self::Raw {
+            view_pos,
+            view_proj,
+        }
+    }
+}
+
+impl FirstPersonCamera {
+    pub fn new(pos: cgmath::Point3<f32>, dir: cgmath::Vector3<f32>, frame: FrameDim) -> Self {
+        let up = cgmath::Vector3::unit_y();
+        let speed = 1.;
+
+        let FrameDim(width, height) = frame;
+        let aspect = width as f32 / height as f32;
+        let fovy = 45.0;
+        let znear = 0.1;
+        let zfar = 100.0;
+
+        Self {
+            pos,
+            dir,
+            speed,
+            up,
+            aspect,
+            fovy,
+            znear,
+            zfar,
+            frame,
+        }
+    }
+
+    pub fn update_frame(&mut self, frame: FrameDim) {
+        self.frame = frame;
+        let FrameDim(width, height) = frame;
+        self.aspect = width as f32 / height as f32;
+    }
+
+    pub fn go(&mut self, direction: Direction) {
+        let right = self.dir.cross(self.up).normalize();
+
+        let delta = match direction {
+            Direction::W => self.dir * self.speed,
+            Direction::A => -right * self.speed,
+            Direction::S => -self.dir * self.speed,
+            Direction::D => right * self.speed,
+        };
+
+        self.pos += delta;
+    }
+
+    pub fn rotate(&mut self, movement: cgmath::Vector2<f32>) {
+        let rot90 = cgmath::Rad(0.5 * std::f32::consts::PI);
+        let rot90 = cgmath::Basis2::from_angle(rot90);
+        let cgmath::Vector2 { x, y } = rot90.rotate_vector(movement);
+
+        let right = self.dir.cross(self.up).normalize();
+        let up = right.cross(self.dir);
+
+        // image coordinate system starts at top left corner
+        // and y gets bigger when going down, so we need to invert y
+        let rotation_axis = (x * right - y * up).normalize();
+
+        let angle = cgmath::Rad(movement.magnitude()) / 100.;
+        let rotation = cgmath::Basis3::from_axis_angle(rotation_axis, angle);
+
+        self.dir = rotation.rotate_vector(self.dir).normalize();
+    }
+
+    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        let view = cgmath::Matrix4::look_to_rh(self.pos, self.dir, self.up);
+        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+
+        // wgpu uses DirectX / Metal coordinates
+        // there it is assumed that x,y are in range [-1., 1.] and z is in range of [0., 1.]
+        // cgmath uses OpenGL coordinates that assumes [-1., 1.] for all axes
+        // that means we need an affine transform to fix the z-axis
+        #[rustfmt::skip]
+        const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 0.5, 0.5,
+            0.0, 0.0, 0.0, 1.0,
+        );
+        OPENGL_TO_WGPU_MATRIX * proj * view
+    }
+}
+
+// Safety: CameraRaw restricts view_pos to last value != 0
+// and view_proj to row major matrix with bottom right != 0
+unsafe impl GpuTransfer for FirstPersonCamera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
         let view_pos = self.pos.to_homogeneous().into();

@@ -9,7 +9,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::scene::SceneState;
+use crate::{camera, scene::SceneState};
 
 #[derive(Default)]
 pub struct App {
@@ -185,16 +185,45 @@ impl ApplicationHandler for App {
                     );
                 }
                 KeyEvent {
-                    physical_key: PhysicalKey::Code(KeyCode::KeyS),
+                    physical_key: PhysicalKey::Code(KeyCode::KeyT),
                     state: ElementState::Pressed,
                     ..
                 } => {
-                    let simple = scene.toggle_simple();
+                    let texture = scene.toggle_texture();
                     println!(
-                        "toggle simple: {}",
-                        if simple { "simple" } else { "normal" }
+                        "toggle texture: {}",
+                        if texture { "flat" } else { "normal" }
                     );
                 }
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::KeyC),
+                    state: ElementState::Pressed,
+                    ..
+                } => {
+                    let first_person = scene.toggle_camera();
+                    println!(
+                        "toggle camera: {}",
+                        if first_person {
+                            "first person"
+                        } else {
+                            "target"
+                        }
+                    );
+                }
+                KeyEvent {
+                    physical_key:
+                        PhysicalKey::Code(
+                            key @ (KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD),
+                        ),
+                    state: ElementState::Pressed,
+                    ..
+                } => match key {
+                    KeyCode::KeyW => scene.move_camera(camera::Direction::W),
+                    KeyCode::KeyA => scene.move_camera(camera::Direction::A),
+                    KeyCode::KeyS => scene.move_camera(camera::Direction::S),
+                    KeyCode::KeyD => scene.move_camera(camera::Direction::D),
+                    _ => unreachable!(),
+                },
                 _ => (),
             },
 

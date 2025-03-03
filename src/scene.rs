@@ -9,12 +9,14 @@ pub struct SceneState {
     render_state: render::SceneRenderState,
     paused: bool,
     simple: bool,
+    use_first_person_camera: bool,
     last_time: std::time::Instant,
     #[expect(unused)]
     model: model::Model,
     #[expect(unused)]
     instances: Vec<model::Instance>,
-    camera: camera::TargetCamera,
+    target_camera: camera::TargetCamera,
+    first_person_camera: camera::FirstPersonCamera,
     light: light::Light,
 }
 
@@ -26,7 +28,8 @@ impl SceneState {
         let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
         let distance = 10.;
         let frame = render_init.get_frame_dim();
-        let camera = camera::TargetCamera::new(pos, target, distance, frame);
+        let target_camera = camera::TargetCamera::new(pos, target, distance, frame);
+        let first_person_camera = camera::FirstPersonCamera::new(pos, target - pos, frame);
 
         let position = [2., 2., 2.].into();
         let color = light::Color {
@@ -66,7 +69,7 @@ impl SceneState {
 
         let render_state = render::SceneRenderState::create(
             render_init,
-            &camera,
+            &target_camera,
             &light,
             &model.mesh,
             &instances,
@@ -76,15 +79,18 @@ impl SceneState {
         .unwrap();
 
         let simple = false;
+        let use_first_person_camera = false;
 
         SceneState {
             simple,
             render_state,
             paused,
+            use_first_person_camera,
             last_time,
             model,
             instances,
-            camera,
+            target_camera,
+            first_person_camera,
             light,
         }
     }
@@ -93,8 +99,13 @@ impl SceneState {
         if let Some(winit::dpi::PhysicalSize { width, height }) = new_size {
             if width > 0 && height > 0 {
                 let frame_size = camera::FrameDim(width, height);
-                self.camera.update_frame(frame_size);
-                self.render_state.update_camera(&self.camera);
+                self.target_camera.update_frame(frame_size);
+                self.first_person_camera.update_frame(frame_size);
+                if self.use_first_person_camera {
+                    self.render_state.update_camera(&self.first_person_camera);
+                } else {
+                    self.render_state.update_camera(&self.target_camera);
+                }
             }
         }
 
@@ -129,18 +140,37 @@ impl SceneState {
     }
 
     pub fn drag_camera(&mut self, movement: cgmath::Vector2<f32>) {
-        self.camera.rotate(movement);
-        self.render_state.update_camera(&self.camera);
+        if self.use_first_person_camera {
+            self.first_person_camera.rotate(movement);
+            self.render_state.update_camera(&self.first_person_camera);
+        } else {
+            self.target_camera.rotate(movement);
+            self.render_state.update_camera(&self.target_camera);
+        }
     }
 
     pub fn go_near(&mut self) {
-        self.camera.go_near();
-        self.render_state.update_camera(&self.camera);
+        if self.use_first_person_camera {
+            return;
+        }
+        self.target_camera.go_near();
+        self.render_state.update_camera(&self.target_camera);
     }
 
     pub fn go_away(&mut self) {
-        self.camera.go_away();
-        self.render_state.update_camera(&self.camera);
+        if self.use_first_person_camera {
+            return;
+        }
+        self.target_camera.go_away();
+        self.render_state.update_camera(&self.target_camera);
+    }
+
+    pub fn move_camera(&mut self, dir: camera::Direction) {
+        if !self.use_first_person_camera {
+            return;
+        }
+        self.first_person_camera.go(dir);
+        self.render_state.update_camera(&self.first_person_camera);
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -154,8 +184,13 @@ impl SceneState {
     }
 
     /// returns true if simple on after toggling
-    pub fn toggle_simple(&mut self) -> bool {
+    pub fn toggle_texture(&mut self) -> bool {
         self.simple ^= true;
         self.simple
+    }
+
+    pub fn toggle_camera(&mut self) -> bool {
+        self.use_first_person_camera ^= true;
+        self.use_first_person_camera
     }
 }
