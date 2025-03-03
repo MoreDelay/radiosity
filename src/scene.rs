@@ -191,6 +191,11 @@ impl SceneState {
 
     pub fn toggle_camera(&mut self) -> bool {
         self.use_first_person_camera ^= true;
+        if self.use_first_person_camera {
+            self.render_state.update_camera(&self.first_person_camera);
+        } else {
+            self.render_state.update_camera(&self.target_camera);
+        }
         self.use_first_person_camera
     }
 }
