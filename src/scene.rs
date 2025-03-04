@@ -8,7 +8,7 @@ use crate::{camera, light, model, render};
 pub struct SceneState {
     render_state: render::SceneRenderState,
     paused: bool,
-    simple: bool,
+    pipeline_mode: render::PipelineMode,
     use_first_person_camera: bool,
     last_time: std::time::Instant,
     #[expect(unused)]
@@ -75,14 +75,16 @@ impl SceneState {
             &instances,
             model.material.color_texture.as_ref(),
             model.material.normal_texture.as_ref(),
+            // Option::<&model::ColorTexture>::None,
+            // Option::<&model::NormalTexture>::None,
         )
         .unwrap();
 
-        let simple = false;
+        let pipeline_mode = render::PipelineMode::Normal;
         let use_first_person_camera = false;
 
         SceneState {
-            simple,
+            pipeline_mode,
             render_state,
             paused,
             use_first_person_camera,
@@ -174,7 +176,7 @@ impl SceneState {
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.render_state.draw(self.simple)
+        self.render_state.draw(self.pipeline_mode)
     }
 
     /// returns true if paused after toggling
@@ -183,10 +185,16 @@ impl SceneState {
         self.paused
     }
 
-    /// returns true if simple on after toggling
-    pub fn toggle_texture(&mut self) -> bool {
-        self.simple ^= true;
-        self.simple
+    /// toggles the pipeline mode and returns the mode used after toggling
+    pub fn toggle_pipeline(&mut self) -> render::PipelineMode {
+        use render::PipelineMode::*;
+        let next_mode = match self.pipeline_mode {
+            Flat => Color,
+            Color => Normal,
+            Normal => Flat,
+        };
+        self.pipeline_mode = next_mode;
+        self.pipeline_mode
     }
 
     pub fn toggle_camera(&mut self) -> bool {

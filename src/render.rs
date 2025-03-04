@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use pipeline::{LightPipeline, ScenePipeline, SimpleScenePipeline};
 use resource::{InstanceBuffer, MaterialBinding};
 use winit::window::Window;
 
@@ -12,6 +11,13 @@ mod pipeline;
 mod resource;
 
 use layout::*;
+
+#[derive(Copy, Clone, Debug)]
+pub enum PipelineMode {
+    Flat,
+    Color,
+    Normal,
+}
 
 pub struct RenderStateInit {
     surface: wgpu::Surface<'static>,
@@ -28,15 +34,16 @@ pub struct SceneRenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    scene_pipeline: ScenePipeline,
-    simple_scene_pipeline: SimpleScenePipeline,
+    normal_pipeline: pipeline::NormalScenePipeline,
+    color_pipeline: pipeline::ColorScenePipeline,
+    flat_pipeline: pipeline::FlatScenePipeline,
     mesh_buffer: resource::MeshBuffer,
     material_binding: resource::MaterialBinding,
     instance_buffer: resource::InstanceBuffer,
     depth_texture: resource::Texture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
-    light_pipeline: LightPipeline,
+    light_pipeline: pipeline::LightPipeline,
 }
 
 impl RenderStateInit {
@@ -150,7 +157,7 @@ impl SceneRenderState {
         let light_binding =
             resource::LightBinding::new(&device, &light_layout, light, Some("Single"));
 
-        let scene_pipeline = ScenePipeline::new(
+        let normal_pipeline = pipeline::NormalScenePipeline::new(
             &device,
             config.format,
             &texture_layout,
@@ -158,7 +165,15 @@ impl SceneRenderState {
             &light_layout,
         )?;
 
-        let simple_scene_pipeline = SimpleScenePipeline::new(
+        let color_pipeline = pipeline::ColorScenePipeline::new(
+            &device,
+            config.format,
+            &texture_layout,
+            &camera_layout,
+            &light_layout,
+        )?;
+
+        let flat_pipeline = pipeline::FlatScenePipeline::new(
             &device,
             config.format,
             &texture_layout,
@@ -167,7 +182,7 @@ impl SceneRenderState {
         )?;
 
         let light_pipeline =
-            LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
+            pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
 
         let material_binding = MaterialBinding::new(
             &device,
@@ -191,8 +206,9 @@ impl SceneRenderState {
             depth_texture,
             camera_binding,
             light_binding,
-            scene_pipeline,
-            simple_scene_pipeline,
+            normal_pipeline,
+            color_pipeline,
+            flat_pipeline,
             light_pipeline,
             mesh_buffer,
             material_binding,
@@ -223,7 +239,7 @@ impl SceneRenderState {
         self.camera_binding.update(&self.queue, data);
     }
 
-    pub fn draw(&mut self, simple: bool) -> Result<(), wgpu::SurfaceError> {
+    pub fn draw(&mut self, pipeline_mode: PipelineMode) -> Result<(), wgpu::SurfaceError> {
         // blocks until surface provides render target
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -270,10 +286,10 @@ impl SceneRenderState {
         render_pass.set_vertex_buffer(1, self.instance_buffer.buffer.slice(..));
 
         // scene pass
-        if simple {
-            render_pass.set_pipeline(&self.simple_scene_pipeline.0);
-        } else {
-            render_pass.set_pipeline(&self.scene_pipeline.0);
+        match pipeline_mode {
+            PipelineMode::Flat => render_pass.set_pipeline(&self.flat_pipeline.0),
+            PipelineMode::Color => render_pass.set_pipeline(&self.color_pipeline.0),
+            PipelineMode::Normal => render_pass.set_pipeline(&self.normal_pipeline.0),
         }
         render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
         render_pass.set_index_buffer(

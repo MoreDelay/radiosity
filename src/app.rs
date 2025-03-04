@@ -189,10 +189,15 @@ impl ApplicationHandler for App {
                     state: ElementState::Pressed,
                     ..
                 } => {
-                    let texture = scene.toggle_texture();
+                    use crate::render::PipelineMode::*;
+                    let mode = scene.toggle_pipeline();
                     println!(
-                        "toggle texture: {}",
-                        if texture { "flat" } else { "normal" }
+                        "toggle pipeline: {}",
+                        match mode {
+                            Flat => "flat",
+                            Color => "color",
+                            Normal => "normal",
+                        }
                     );
                 }
                 KeyEvent {

@@ -1,13 +1,14 @@
 use super::{layout, resource};
 
-pub struct ScenePipeline(pub wgpu::RenderPipeline);
-pub struct SimpleScenePipeline(pub wgpu::RenderPipeline);
+pub struct FlatScenePipeline(pub wgpu::RenderPipeline);
+pub struct NormalScenePipeline(pub wgpu::RenderPipeline);
+pub struct ColorScenePipeline(pub wgpu::RenderPipeline);
 pub struct LightPipeline(pub wgpu::RenderPipeline);
 
-impl ScenePipeline {
+impl FlatScenePipeline {
     const SHADER: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/shaders/shader.wgsl"
+        "/src/shaders/model_none.wgsl"
     ));
 
     pub fn new(
@@ -38,7 +39,41 @@ impl ScenePipeline {
     }
 }
 
-impl SimpleScenePipeline {
+impl NormalScenePipeline {
+    const SHADER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/shaders/model_cn.wgsl"
+    ));
+
+    pub fn new(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        texture_layout: &resource::TextureBindGroupLayout,
+        camera_layout: &resource::CameraBindGroupLayout,
+        light_layout: &resource::LightBindGroupLayout,
+    ) -> anyhow::Result<Self> {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[&camera_layout.0, &light_layout.0, &texture_layout.0],
+            push_constant_ranges: &[],
+        });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("Scene Shader"),
+            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
+        };
+        let pipeline = create_render_pipeline(
+            device,
+            &layout,
+            color_format,
+            Some(resource::Texture::DEPTH_FORMAT),
+            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            shader,
+        );
+        Ok(Self(pipeline))
+    }
+}
+
+impl ColorScenePipeline {
     const SHADER: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/src/shaders/model_c.wgsl"
