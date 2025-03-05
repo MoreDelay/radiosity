@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64, ops::Deref};
 
 use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
@@ -7,7 +7,16 @@ use super::{
     CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, TriangleBufferRaw,
 };
 
-pub struct TextureBindGroupLayout(pub wgpu::BindGroupLayout);
+pub struct NormalTextureBindGroupLayout(pub wgpu::BindGroupLayout);
+pub struct ColorTextureBindGroupLayout(pub wgpu::BindGroupLayout);
+pub struct FlatTextureBindGroupLayout(pub wgpu::BindGroupLayout);
+
+pub enum TextureBindGroupLayout {
+    Flat(FlatTextureBindGroupLayout),
+    Color(ColorTextureBindGroupLayout),
+    Normal(NormalTextureBindGroupLayout),
+}
+
 pub struct CameraBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct LightBindGroupLayout(pub wgpu::BindGroupLayout);
 
@@ -43,6 +52,9 @@ pub struct InstanceBuffer {
     pub buffer: wgpu::Buffer,
     pub num_instances: u32,
 }
+
+pub trait HasColor {}
+pub trait HasNormal {}
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -94,7 +106,65 @@ impl Texture {
     }
 }
 
+impl Deref for FlatTextureBindGroupLayout {
+    type Target = wgpu::BindGroupLayout;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl Deref for ColorTextureBindGroupLayout {
+    type Target = wgpu::BindGroupLayout;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl Deref for NormalTextureBindGroupLayout {
+    type Target = wgpu::BindGroupLayout;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for TextureBindGroupLayout {
+    type Target = wgpu::BindGroupLayout;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            TextureBindGroupLayout::Flat(layout) => layout,
+            TextureBindGroupLayout::Color(layout) => layout,
+            TextureBindGroupLayout::Normal(layout) => layout,
+        }
+    }
+}
+
+impl HasColor for ColorTextureBindGroupLayout {}
+impl HasColor for NormalTextureBindGroupLayout {}
+
+impl HasNormal for NormalTextureBindGroupLayout {}
+
+#[derive(Copy, Clone, Debug)]
+pub enum TextureAvailability {
+    None,
+    Color,
+    NormalAndColor,
+}
+
 impl TextureBindGroupLayout {
+    pub fn new(device: &wgpu::Device, availability: TextureAvailability) -> Self {
+        match availability {
+            TextureAvailability::None => Self::Flat(FlatTextureBindGroupLayout::new(device)),
+            TextureAvailability::Color => Self::Color(ColorTextureBindGroupLayout::new(device)),
+            TextureAvailability::NormalAndColor => {
+                Self::Normal(NormalTextureBindGroupLayout::new(device))
+            }
+        }
+    }
+}
+
+impl NormalTextureBindGroupLayout {
     pub fn new(device: &wgpu::Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture_bind_group_layout"),
@@ -132,6 +202,43 @@ impl TextureBindGroupLayout {
                     count: None,
                 },
             ],
+        });
+        Self(layout)
+    }
+}
+
+impl ColorTextureBindGroupLayout {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture_bind_group_layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        Self(layout)
+    }
+}
+
+impl FlatTextureBindGroupLayout {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture_bind_group_layout"),
+            entries: &[],
         });
         Self(layout)
     }
@@ -221,9 +328,10 @@ impl MaterialBinding {
             .flatten() // filter missing materials
             .flatten() // flatten [view, sampler] slices to single level
             .collect();
+
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label,
-            layout: &layout.0,
+            layout,
             entries: &entries,
         });
 

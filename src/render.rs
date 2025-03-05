@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use resource::{InstanceBuffer, MaterialBinding};
 use winit::window::Window;
 
 use crate::camera;
@@ -34,8 +33,8 @@ pub struct SceneRenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    normal_pipeline: pipeline::NormalScenePipeline,
-    color_pipeline: pipeline::ColorScenePipeline,
+    normal_pipeline: Option<pipeline::NormalScenePipeline>,
+    color_pipeline: Option<pipeline::ColorScenePipeline>,
     flat_pipeline: pipeline::FlatScenePipeline,
     mesh_buffer: resource::MeshBuffer,
     material_binding: resource::MaterialBinding,
@@ -147,7 +146,13 @@ impl SceneRenderState {
             depth_texture,
         } = init;
 
-        let texture_layout = resource::TextureBindGroupLayout::new(&device);
+        let availability = match (color_texture.is_some(), normal_texture.is_some()) {
+            (true, true) => resource::TextureAvailability::NormalAndColor,
+            (true, false) => resource::TextureAvailability::Color,
+            (false, true) => unimplemented!(),
+            (false, false) => resource::TextureAvailability::None,
+        };
+        let texture_layout = resource::TextureBindGroupLayout::new(&device, availability);
 
         let camera_layout = resource::CameraBindGroupLayout::new(&device);
         let camera_binding =
@@ -157,34 +162,70 @@ impl SceneRenderState {
         let light_binding =
             resource::LightBinding::new(&device, &light_layout, light, Some("Single"));
 
-        let normal_pipeline = pipeline::NormalScenePipeline::new(
-            &device,
-            config.format,
-            &texture_layout,
-            &camera_layout,
-            &light_layout,
-        )?;
+        let normal_pipeline = match &texture_layout {
+            resource::TextureBindGroupLayout::Normal(layout) => {
+                Some(pipeline::NormalScenePipeline::new(
+                    &device,
+                    config.format,
+                    layout,
+                    &camera_layout,
+                    &light_layout,
+                )?)
+            }
+            resource::TextureBindGroupLayout::Color(_) => None,
+            resource::TextureBindGroupLayout::Flat(_) => None,
+        };
 
-        let color_pipeline = pipeline::ColorScenePipeline::new(
-            &device,
-            config.format,
-            &texture_layout,
-            &camera_layout,
-            &light_layout,
-        )?;
+        let color_pipeline = match &texture_layout {
+            resource::TextureBindGroupLayout::Normal(layout) => {
+                Some(pipeline::ColorScenePipeline::new(
+                    &device,
+                    config.format,
+                    layout,
+                    &camera_layout,
+                    &light_layout,
+                )?)
+            }
+            resource::TextureBindGroupLayout::Color(layout) => {
+                Some(pipeline::ColorScenePipeline::new(
+                    &device,
+                    config.format,
+                    layout,
+                    &camera_layout,
+                    &light_layout,
+                )?)
+            }
+            resource::TextureBindGroupLayout::Flat(_) => None,
+        };
 
-        let flat_pipeline = pipeline::FlatScenePipeline::new(
-            &device,
-            config.format,
-            &texture_layout,
-            &camera_layout,
-            &light_layout,
-        )?;
+        let flat_pipeline = match &texture_layout {
+            resource::TextureBindGroupLayout::Normal(layout) => pipeline::FlatScenePipeline::new(
+                &device,
+                config.format,
+                layout,
+                &camera_layout,
+                &light_layout,
+            )?,
+            resource::TextureBindGroupLayout::Color(layout) => pipeline::FlatScenePipeline::new(
+                &device,
+                config.format,
+                layout,
+                &camera_layout,
+                &light_layout,
+            )?,
+            resource::TextureBindGroupLayout::Flat(layout) => pipeline::FlatScenePipeline::new(
+                &device,
+                config.format,
+                layout,
+                &camera_layout,
+                &light_layout,
+            )?,
+        };
 
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
 
-        let material_binding = MaterialBinding::new(
+        let material_binding = resource::MaterialBinding::new(
             &device,
             &queue,
             &texture_layout,
@@ -194,7 +235,7 @@ impl SceneRenderState {
         );
 
         let mesh_buffer = resource::MeshBuffer::new(&device, mesh, Some("Single"));
-        let instance_buffer = InstanceBuffer::new(&device, instances, Some("Grid"));
+        let instance_buffer = resource::InstanceBuffer::new(&device, instances, Some("Grid"));
 
         Ok(Self {
             surface,
@@ -288,8 +329,15 @@ impl SceneRenderState {
         // scene pass
         match pipeline_mode {
             PipelineMode::Flat => render_pass.set_pipeline(&self.flat_pipeline.0),
-            PipelineMode::Color => render_pass.set_pipeline(&self.color_pipeline.0),
-            PipelineMode::Normal => render_pass.set_pipeline(&self.normal_pipeline.0),
+            PipelineMode::Color if self.color_pipeline.is_some() => {
+                let color_pipeline = self.color_pipeline.as_ref().unwrap();
+                render_pass.set_pipeline(&color_pipeline.0);
+            }
+            PipelineMode::Normal if self.normal_pipeline.is_some() => {
+                let normal_pipeline = &self.normal_pipeline.as_ref().unwrap();
+                render_pass.set_pipeline(&normal_pipeline.0);
+            }
+            _ => render_pass.set_pipeline(&self.flat_pipeline.0),
         }
         render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
         render_pass.set_index_buffer(

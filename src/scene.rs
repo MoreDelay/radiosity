@@ -80,7 +80,7 @@ impl SceneState {
         )
         .unwrap();
 
-        let pipeline_mode = render::PipelineMode::Normal;
+        let pipeline_mode = render::PipelineMode::Flat;
         let use_first_person_camera = false;
 
         SceneState {
