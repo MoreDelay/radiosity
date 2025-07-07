@@ -162,8 +162,8 @@ impl Mesh {
 
         for face in faces.iter() {
             for triplet in face.triplets.iter() {
-                let i_vertex = triplet.vertex;
-                let Some(i_normal) = triplet.normal else {
+                let i_vertex = triplet.index_vertex;
+                let Some(i_normal) = triplet.index_normal else {
                     continue;
                 };
                 let parser::ObjVn { i, j, k } = normals[i_normal];
@@ -202,9 +202,9 @@ impl Mesh {
                     .flat_map(<&[ObjVertexTriplet; 2]>::try_from)
                     .map(|[second, third]| {
                         Triplet(
-                            first.vertex as u32,
-                            second.vertex as u32,
-                            third.vertex as u32,
+                            first.index_vertex as u32,
+                            second.index_vertex as u32,
+                            third.index_vertex as u32,
                         )
                     })
                     .collect::<Vec<_>>()
