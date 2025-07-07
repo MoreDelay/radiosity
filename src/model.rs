@@ -1,13 +1,16 @@
 use std::{fs::File, io::BufReader, path::Path};
 
 use anyhow::Context;
-use cgmath::{EuclideanSpace, Zero};
+use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
+use parser::{ObjVertexTriplet, ParsedObj};
 
 use crate::render::layout::{
     GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, TextureRaw, TriangleBufferRaw,
     VertexRaw,
 };
+
+mod parser;
 
 pub const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -37,13 +40,16 @@ pub struct NormalTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
 pub struct Model {
     pub mesh: Mesh,
-    pub material: Material,
+    #[expect(unused)]
+    pub material: Option<Material>,
 }
 
 pub struct Material {
     #[expect(unused)]
     pub name: String,
+    #[expect(unused)]
     pub color_texture: Option<ColorTexture>,
+    #[expect(unused)]
     pub normal_texture: Option<NormalTexture>,
 }
 
@@ -51,7 +57,7 @@ pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<Triplet>,
     #[expect(unused)]
-    pub material_id: usize,
+    pub material_id: Option<usize>,
 }
 
 impl Material {
@@ -81,6 +87,16 @@ impl Material {
 }
 
 impl Model {
+    pub fn alternative(file_name: &Path) -> anyhow::Result<Self> {
+        let parsed_obj = parser::parse_obj(file_name)?;
+        let mesh = Mesh::alternative(parsed_obj);
+        Ok(Self {
+            mesh,
+            material: None,
+        })
+    }
+
+    #[expect(dead_code)]
     pub fn load(file_name: &Path) -> anyhow::Result<Self> {
         let root = file_name.parent().expect("texture should not be root");
         let obj_file = File::open(file_name).context("could not find obj")?;
@@ -101,10 +117,11 @@ impl Model {
             },
         )?;
 
-        let material = materials?
-            .first()
-            .map(|mat| Material::load(root, mat))
-            .ok_or(anyhow::anyhow!("no material"))??;
+        let material = materials?.first().map(|mat| Material::load(root, mat));
+        let material = match material {
+            Some(material) => Some(material?),
+            None => None,
+        };
 
         let mesh = models
             .first()
@@ -116,13 +133,98 @@ impl Model {
 }
 
 impl Mesh {
+    fn alternative(parsed_obj: ParsedObj) -> Self {
+        let ParsedObj {
+            vertices,
+            texture_coords: _,
+            normals,
+            faces,
+        } = parsed_obj;
+
+        assert!(vertices.len() == normals.len());
+
+        let mut vertices = vertices
+            .into_iter()
+            .map(|parser::ObjV { x, y, z, .. }| {
+                let position = cgmath::Point3 { x, y, z };
+                let tex_coords = cgmath::Point2::origin();
+                let zero = cgmath::Vector3::zero();
+
+                Vertex {
+                    position,
+                    tex_coords,
+                    normal: zero,
+                    tangent: zero,
+                    bitangent: zero,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for face in faces.iter() {
+            for triplet in face.triplets.iter() {
+                let i_vertex = triplet.vertex;
+                let Some(i_normal) = triplet.normal else {
+                    continue;
+                };
+                let parser::ObjVn { i, j, k } = normals[i_normal];
+                let normal = cgmath::Vector3 { x: i, y: j, z: k }.normalize();
+                let unit = if (normal - cgmath::Vector3::unit_x()).magnitude() > 0.1 {
+                    cgmath::Vector3::unit_x()
+                } else {
+                    cgmath::Vector3::unit_y()
+                };
+                let tangent = normal.cross(unit).normalize();
+                let bitangent = normal.cross(tangent);
+
+                vertices[i_vertex].normal = normal;
+                vertices[i_vertex].tangent = tangent;
+                vertices[i_vertex].bitangent = bitangent;
+            }
+        }
+        for v in vertices.iter_mut() {
+            v.normal = v.normal.normalize();
+            v.tangent = v.tangent.normalize();
+            v.bitangent = v.bitangent.normalize();
+        }
+
+        // make all faces to triangles naively
+        let triangles = faces
+            .into_iter()
+            .flat_map(|face| {
+                if face.triplets.len() < 3 {
+                    panic!("too few vertices, not a face!")
+                }
+                let ([first], other) = face.triplets.split_at(1) else {
+                    unreachable!()
+                };
+                other
+                    .windows(2)
+                    .flat_map(<&[ObjVertexTriplet; 2]>::try_from)
+                    .map(|[second, third]| {
+                        Triplet(
+                            first.vertex as u32,
+                            second.vertex as u32,
+                            third.vertex as u32,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            vertices,
+            triangles,
+            material_id: None,
+        }
+    }
+
     fn new(model: &tobj::Model) -> Self {
         assert!(
             model.mesh.positions.len() % 3 == 0,
             "expect only triangle meshes"
         );
 
-        let mut vertices = (0..model.mesh.positions.len() / 3)
+        let vertices = (0..model.mesh.positions.len() / 3)
             .map(|i| {
                 let position = cgmath::Point3 {
                     x: model.mesh.positions[i * 3],
@@ -151,8 +253,14 @@ impl Mesh {
                     }
                 };
                 // calculated below
-                let tangent = cgmath::Vector3::zero();
-                let bitangent = cgmath::Vector3::zero();
+
+                let unit = if (normal - cgmath::Vector3::unit_x()).magnitude() > 0.1 {
+                    cgmath::Vector3::unit_x()
+                } else {
+                    cgmath::Vector3::unit_y()
+                };
+                let tangent = normal.cross(unit).normalize();
+                let bitangent = normal.cross(tangent);
                 Vertex {
                     position,
                     tex_coords,
@@ -163,7 +271,6 @@ impl Mesh {
             })
             .collect::<Vec<_>>();
 
-        // compute tangents (similar to computing normals)
         assert!(
             model.mesh.indices.len() % 3 == 0,
             "mesh should only contain triangles"
@@ -175,50 +282,7 @@ impl Mesh {
             .flat_map(<&[u32; 3]>::try_from)
             .map(|&[a, b, c]| Triplet(a, b, c))
             .collect::<Vec<_>>();
-        let mut triangles_included = vec![0; vertices.len()];
-
-        for &Triplet(i, j, k) in triangles.iter() {
-            let v0 = vertices[i as usize];
-            let v1 = vertices[j as usize];
-            let v2 = vertices[k as usize];
-
-            let pos0 = v0.position.to_vec();
-            let pos1 = v1.position.to_vec();
-            let pos2 = v2.position.to_vec();
-
-            let uv0 = v0.tex_coords.to_vec();
-            let uv1 = v1.tex_coords.to_vec();
-            let uv2 = v2.tex_coords.to_vec();
-
-            let delta_pos1 = pos1 - pos0;
-            let delta_pos2 = pos2 - pos0;
-
-            let delta_uv1 = uv1 - uv0;
-            let delta_uv2 = uv2 - uv0;
-
-            let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
-            let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
-            let bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * -r;
-
-            vertices[i as usize].tangent = tangent + vertices[i as usize].tangent;
-            vertices[j as usize].tangent = tangent + vertices[j as usize].tangent;
-            vertices[k as usize].tangent = tangent + vertices[k as usize].tangent;
-            vertices[i as usize].bitangent = bitangent + vertices[i as usize].bitangent;
-            vertices[j as usize].bitangent = bitangent + vertices[j as usize].bitangent;
-            vertices[k as usize].bitangent = bitangent + vertices[k as usize].bitangent;
-
-            triangles_included[i as usize] += 1;
-            triangles_included[j as usize] += 1;
-            triangles_included[k as usize] += 1;
-        }
-
-        for (i, n) in triangles_included.into_iter().enumerate() {
-            let denom = 1.0 / n as f32;
-            let v = &mut vertices[i];
-            v.tangent *= denom;
-            v.bitangent *= denom;
-        }
-        let material_id = model.mesh.material_id.unwrap_or(0);
+        let material_id = model.mesh.material_id;
 
         Mesh {
             vertices,

@@ -44,7 +44,7 @@ impl SceneState {
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let model_path = root.join("resources/cube/cube.obj");
-        let model = model::Model::load(&model_path).unwrap();
+        let model = model::Model::alternative(&model_path).unwrap();
 
         const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..model::NUM_INSTANCES_PER_ROW)
@@ -73,10 +73,10 @@ impl SceneState {
             &light,
             &model.mesh,
             &instances,
-            model.material.color_texture.as_ref(),
-            model.material.normal_texture.as_ref(),
-            // Option::<&model::ColorTexture>::None,
-            // Option::<&model::NormalTexture>::None,
+            // model.material.color_texture.as_ref(),
+            // model.material.normal_texture.as_ref(),
+            Option::<&model::ColorTexture>::None,
+            Option::<&model::NormalTexture>::None,
         )
         .unwrap();
 
