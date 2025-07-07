@@ -229,6 +229,11 @@ impl ApplicationHandler for App {
                     KeyCode::KeyD => scene.move_camera(camera::Direction::D),
                     _ => unreachable!(),
                 },
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::KeyH),
+                    state: ElementState::Pressed,
+                    ..
+                } => println!("{}", App::help()),
                 _ => (),
             },
 
@@ -239,6 +244,8 @@ impl ApplicationHandler for App {
 
 impl App {
     pub fn run() -> Result<()> {
+        println!("{}", App::help());
+
         let event_loop = EventLoop::new()?;
         // use Poll when you want to redraw continuously
         event_loop.set_control_flow(ControlFlow::Wait);
@@ -246,5 +253,19 @@ impl App {
         let mut app = App::default();
         event_loop.run_app(&mut app)?;
         Ok(())
+    }
+
+    pub fn help() -> String {
+        format!(
+            r#"
+Controls:
+q: quit
+h: show this message again
+t: cycle through textures
+c: toggle between satelite and first-person camera
+p: toggle light movement
+wasd: move in first-person view
+"#
+        )
     }
 }
