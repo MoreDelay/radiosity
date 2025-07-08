@@ -44,7 +44,7 @@ impl SceneState {
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let model_path = root.join("resources/cube/cube.obj");
-        let model = model::Model::alternative(&model_path).unwrap();
+        let model = model::Model::load(&model_path).unwrap();
 
         const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..model::NUM_INSTANCES_PER_ROW)

@@ -1,6 +1,5 @@
-use std::{fs::File, io::BufReader, path::Path};
+use std::path::Path;
 
-use anyhow::Context;
 use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
 use parser::{ObjVertexTriplet, ParsedObj};
@@ -58,7 +57,7 @@ pub struct Mesh {
 }
 
 impl Material {
-    pub fn alternative(root: &Path, mtl: &parser::ParsedMtl) -> anyhow::Result<Self> {
+    pub fn load(root: &Path, mtl: &parser::ParsedMtl) -> anyhow::Result<Self> {
         let color_texture = match &mtl.map_kd {
             None => None,
             Some(parser::MtlMapKd(path)) => {
@@ -82,82 +81,23 @@ impl Material {
             normal_texture,
         })
     }
-
-    pub fn load(root: &Path, mat: &tobj::Material) -> anyhow::Result<Self> {
-        let diffuse_texture = mat
-            .diffuse_texture
-            .as_ref()
-            .ok_or(anyhow::anyhow!("no diffuse texture"))?;
-        let diffuse_texture = root.join(diffuse_texture);
-        let diffuse_image = ImageReader::open(diffuse_texture)?.decode()?;
-
-        let normal_texture = mat
-            .normal_texture
-            .as_ref()
-            .ok_or(anyhow::anyhow!("no normal texture"))?;
-        let normal_texture = root.join(normal_texture);
-        let normal_image = ImageReader::open(normal_texture)?.decode()?;
-
-        let color_texture = Some(ColorTexture(diffuse_image.into()));
-        let normal_texture = Some(NormalTexture(normal_image.into()));
-        Ok(Self {
-            name: mat.name.to_string(),
-            color_texture,
-            normal_texture,
-        })
-    }
 }
 
 impl Model {
-    pub fn alternative(file_name: &Path) -> anyhow::Result<Self> {
-        let (parsed_obj, _materials) = parser::parse_obj(file_name)?;
-        let mesh = Mesh::alternative(parsed_obj);
+    pub fn load(file_name: &Path) -> anyhow::Result<Self> {
+        let (parsed_obj, materials) = parser::parse_obj(file_name)?;
+        let mesh = Mesh::new(parsed_obj);
         let root = file_name.parent().expect("texture should not be root");
-        let material = match &_materials[..] {
-            [mtl, ..] => Some(Material::alternative(root, mtl)?),
+        let material = match &materials[..] {
+            [mtl, ..] => Some(Material::load(root, mtl)?),
             _ => None,
         };
-        Ok(Self { mesh, material })
-    }
-
-    #[expect(dead_code)]
-    pub fn load(file_name: &Path) -> anyhow::Result<Self> {
-        let root = file_name.parent().expect("texture should not be root");
-        let obj_file = File::open(file_name).context("could not find obj")?;
-        let mut obj_reader = BufReader::new(obj_file);
-
-        let (models, materials) = tobj::load_obj_buf(
-            &mut obj_reader,
-            &tobj::LoadOptions {
-                single_index: true,
-                triangulate: true,
-                ..Default::default()
-            },
-            move |path| {
-                let path = root.join(path);
-                let mtl_file = File::open(path).unwrap();
-                let mut mtl_reader = BufReader::new(mtl_file);
-                tobj::load_mtl_buf(&mut mtl_reader)
-            },
-        )?;
-
-        let material = materials?.first().map(|mat| Material::load(root, mat));
-        let material = match material {
-            Some(material) => Some(material?),
-            None => None,
-        };
-
-        let mesh = models
-            .first()
-            .map(Mesh::new)
-            .ok_or(anyhow::anyhow!("no mesh"))?;
-
         Ok(Self { mesh, material })
     }
 }
 
 impl Mesh {
-    fn alternative(parsed_obj: ParsedObj) -> Self {
+    fn new(parsed_obj: ParsedObj) -> Self {
         let ParsedObj {
             vertices,
             texture_coords,
@@ -262,79 +202,6 @@ impl Mesh {
             vertices,
             triangles,
             material_id: None,
-        }
-    }
-
-    fn new(model: &tobj::Model) -> Self {
-        assert!(
-            model.mesh.positions.len() % 3 == 0,
-            "expect only triangle meshes"
-        );
-
-        let vertices = (0..model.mesh.positions.len() / 3)
-            .map(|i| {
-                let position = cgmath::Point3 {
-                    x: model.mesh.positions[i * 3],
-                    y: model.mesh.positions[i * 3 + 1],
-                    z: model.mesh.positions[i * 3 + 2],
-                };
-                let tex_coords = if model.mesh.texcoords.is_empty() {
-                    cgmath::Point2::origin()
-                } else {
-                    cgmath::Point2 {
-                        x: model.mesh.texcoords[i * 2],
-                        y: 1.0 - model.mesh.texcoords[i * 2 + 1],
-                    }
-                };
-                let normal = if model.mesh.normals.is_empty() {
-                    cgmath::Vector3 {
-                        x: 0.0,
-                        y: 0.0,
-                        z: 0.0,
-                    }
-                } else {
-                    cgmath::Vector3 {
-                        x: model.mesh.normals[i * 3],
-                        y: model.mesh.normals[i * 3 + 1],
-                        z: model.mesh.normals[i * 3 + 2],
-                    }
-                };
-                // calculated below
-
-                let unit = if (normal - cgmath::Vector3::unit_x()).magnitude() > 0.1 {
-                    cgmath::Vector3::unit_x()
-                } else {
-                    cgmath::Vector3::unit_y()
-                };
-                let tangent = normal.cross(unit).normalize();
-                let bitangent = normal.cross(tangent);
-                Vertex {
-                    position,
-                    tex_coords,
-                    normal,
-                    tangent,
-                    bitangent,
-                }
-            })
-            .collect::<Vec<_>>();
-
-        assert!(
-            model.mesh.indices.len() % 3 == 0,
-            "mesh should only contain triangles"
-        );
-        let triangles = model
-            .mesh
-            .indices
-            .chunks(3)
-            .flat_map(<&[u32; 3]>::try_from)
-            .map(|&[a, b, c]| Triplet(a, b, c))
-            .collect::<Vec<_>>();
-        let material_id = model.mesh.material_id;
-
-        Mesh {
-            vertices,
-            triangles,
-            material_id,
         }
     }
 }
