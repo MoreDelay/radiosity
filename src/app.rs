@@ -256,8 +256,7 @@ impl App {
     }
 
     pub fn help() -> String {
-        format!(
-            r#"
+        r#"
 Controls:
 q: quit
 h: show this message again
@@ -266,6 +265,6 @@ c: toggle between satelite and first-person camera
 p: toggle light movement
 wasd: move in first-person view
 "#
-        )
+        .to_string()
     }
 }

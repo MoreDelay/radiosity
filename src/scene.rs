@@ -67,16 +67,19 @@ impl SceneState {
             })
             .collect::<Vec<_>>();
 
+        let (color_texture, normal_texture) = match &model.material {
+            Some(mtl) => (mtl.color_texture.as_ref(), mtl.normal_texture.as_ref()),
+            None => (None, None),
+        };
+
         let render_state = render::SceneRenderState::create(
             render_init,
             &target_camera,
             &light,
             &model.mesh,
             &instances,
-            // model.material.color_texture.as_ref(),
-            // model.material.normal_texture.as_ref(),
-            Option::<&model::ColorTexture>::None,
-            Option::<&model::NormalTexture>::None,
+            color_texture,
+            normal_texture,
         )
         .unwrap();
 

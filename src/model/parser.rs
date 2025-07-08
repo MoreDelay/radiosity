@@ -63,7 +63,6 @@ pub struct ObjUsemtl {
 
 pub struct ParsedObj {
     pub vertices: Vec<ObjV>,
-    #[expect(dead_code)]
     pub texture_coords: Vec<ObjVt>,
     pub normals: Vec<ObjVn>,
     pub faces: Vec<ObjF>,
@@ -274,7 +273,7 @@ pub fn obj_material_use(input: &str) -> IResult<&str, ObjUsemtl> {
     Ok((input, usemtl))
 }
 
-pub fn parse_obj(path: &Path) -> Result<ParsedObj, ParseError> {
+pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError> {
     let abs_path = path.canonicalize()?;
     assert!(abs_path.is_file());
     let abs_dir = abs_path.parent().unwrap();
@@ -341,24 +340,33 @@ pub fn parse_obj(path: &Path) -> Result<ParsedObj, ParseError> {
         }
     }
 
-    Ok(ParsedObj {
+    let parsed_obj = ParsedObj {
         vertices,
         texture_coords,
         normals,
         faces,
-    })
+    };
+    Ok((parsed_obj, materials))
 }
 
-pub struct MtlNs(f32);
-pub struct MtlKa(f32, f32, f32);
-pub struct MtlKd(f32, f32, f32);
-pub struct MtlKs(f32, f32, f32);
-pub struct MtlKe(f32, f32, f32);
-pub struct MtlNi(f32);
-pub struct MtlD(f32);
-pub struct MtlIllum(u32);
-pub struct MtlMapBump(PathBuf);
-pub struct MtlMapKd(PathBuf);
+#[allow(unused)]
+pub struct MtlNs(pub f32);
+#[allow(unused)]
+pub struct MtlKa(pub f32, pub f32, pub f32);
+#[allow(unused)]
+pub struct MtlKd(pub f32, pub f32, pub f32);
+#[expect(unused)]
+pub struct MtlKs(pub f32, pub f32, pub f32);
+#[expect(unused)]
+pub struct MtlKe(pub f32, pub f32, pub f32);
+#[expect(unused)]
+pub struct MtlNi(pub f32);
+#[expect(unused)]
+pub struct MtlD(pub f32);
+#[expect(unused)]
+pub struct MtlIllum(pub u32);
+pub struct MtlMapBump(pub PathBuf);
+pub struct MtlMapKd(pub PathBuf);
 
 pub struct ParsedMtl {
     pub name: String,
@@ -453,9 +461,9 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, ParseError> {
             );
             let ke = preceded(tag("Ke"), ke).map(|(r, g, b)| MtlKe(r, g, b));
             let ni = preceded(obj_whitespace, float);
-            let ni = preceded(tag("Ni"), ni).map(|v| MtlNi(v));
+            let ni = preceded(tag("Ni"), ni).map(MtlNi);
             let d = preceded(obj_whitespace, float);
-            let d = preceded(tag("d"), d).map(|v| MtlD(v));
+            let d = preceded(tag("d"), d).map(MtlD);
             let illum = preceded(obj_whitespace, parse_u32);
             let illum = preceded(tag("illum"), illum).map(MtlIllum);
             let map_bump = take_while1(|c: char| !c.is_whitespace());
@@ -652,7 +660,7 @@ mod tests {
     #[test]
     fn test_parse_obj() {
         let path = PathBuf::from("./resources/viking_room.obj");
-        let obj = parse_obj(&path).unwrap();
+        let (obj, _mtl) = parse_obj(&path).unwrap();
         assert!(obj.vertices.len() == 4675);
         assert!(obj.texture_coords.len() == 4675);
         assert!(obj.normals.len() == 2868);

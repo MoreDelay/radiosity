@@ -40,16 +40,13 @@ pub struct NormalTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
 pub struct Model {
     pub mesh: Mesh,
-    #[expect(unused)]
     pub material: Option<Material>,
 }
 
 pub struct Material {
     #[expect(unused)]
     pub name: String,
-    #[expect(unused)]
     pub color_texture: Option<ColorTexture>,
-    #[expect(unused)]
     pub normal_texture: Option<NormalTexture>,
 }
 
@@ -61,6 +58,31 @@ pub struct Mesh {
 }
 
 impl Material {
+    pub fn alternative(root: &Path, mtl: &parser::ParsedMtl) -> anyhow::Result<Self> {
+        let color_texture = match &mtl.map_kd {
+            None => None,
+            Some(parser::MtlMapKd(path)) => {
+                let path = root.join(path);
+                let image = ImageReader::open(path)?.decode()?;
+                Some(ColorTexture(image.into()))
+            }
+        };
+        let normal_texture = match &mtl.map_bump {
+            None => None,
+            Some(parser::MtlMapBump(path)) => {
+                let path = root.join(path);
+                let image = ImageReader::open(path)?.decode()?;
+                Some(NormalTexture(image.into()))
+            }
+        };
+
+        Ok(Self {
+            name: mtl.name.to_string(),
+            color_texture,
+            normal_texture,
+        })
+    }
+
     pub fn load(root: &Path, mat: &tobj::Material) -> anyhow::Result<Self> {
         let diffuse_texture = mat
             .diffuse_texture
@@ -88,12 +110,14 @@ impl Material {
 
 impl Model {
     pub fn alternative(file_name: &Path) -> anyhow::Result<Self> {
-        let parsed_obj = parser::parse_obj(file_name)?;
+        let (parsed_obj, _materials) = parser::parse_obj(file_name)?;
         let mesh = Mesh::alternative(parsed_obj);
-        Ok(Self {
-            mesh,
-            material: None,
-        })
+        let root = file_name.parent().expect("texture should not be root");
+        let material = match &_materials[..] {
+            [mtl, ..] => Some(Material::alternative(root, mtl)?),
+            _ => None,
+        };
+        Ok(Self { mesh, material })
     }
 
     #[expect(dead_code)]
@@ -136,7 +160,7 @@ impl Mesh {
     fn alternative(parsed_obj: ParsedObj) -> Self {
         let ParsedObj {
             vertices,
-            texture_coords: _,
+            texture_coords,
             normals,
             faces,
         } = parsed_obj;
@@ -187,15 +211,38 @@ impl Mesh {
             v.bitangent = v.bitangent.normalize();
         }
 
+        // set texture coordinates and normals as specified by faces
+        for face in faces.iter() {
+            for triplet in face.triplets.iter() {
+                let ObjVertexTriplet {
+                    index_vertex,
+                    index_texture,
+                    index_normal,
+                } = triplet;
+
+                if let Some(index_texture) = index_texture {
+                    let tex_coords = texture_coords[*index_texture];
+                    let parser::ObjVt { u, v, w: _ } = tex_coords;
+                    let vertex_tex = &mut vertices[*index_vertex].tex_coords;
+                    *vertex_tex = cgmath::Point2 { x: u, y: v };
+                }
+
+                if let Some(index_normal) = index_normal {
+                    let normal = normals[*index_normal];
+                    let parser::ObjVn { i, j, k } = normal;
+                    let vertex_normal = &mut vertices[*index_vertex].normal;
+                    *vertex_normal = cgmath::Vector3 { x: i, y: j, z: k };
+                }
+            }
+        }
+
         // make all faces to triangles naively
         let triangles = faces
             .into_iter()
             .flat_map(|face| {
-                if face.triplets.len() < 3 {
-                    panic!("too few vertices, not a face!")
-                }
+                assert!(face.triplets.len() >= 3, "too few vertices, not a face!");
                 let ([first], other) = face.triplets.split_at(1) else {
-                    unreachable!()
+                    unreachable!("checked above");
                 };
                 other
                     .windows(2)
