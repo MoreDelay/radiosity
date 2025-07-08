@@ -52,7 +52,6 @@ pub struct Material {
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<Triplet>,
-    #[expect(unused)]
     pub material_id: Option<usize>,
 }
 
@@ -88,8 +87,8 @@ impl Model {
         let (parsed_obj, materials) = parser::parse_obj(file_name)?;
         let mesh = Mesh::new(parsed_obj);
         let root = file_name.parent().expect("texture should not be root");
-        let material = match &materials[..] {
-            [mtl, ..] => Some(Material::load(root, mtl)?),
+        let material = match mesh.material_id {
+            Some(index) => Some(Material::load(root, &materials[index])?),
             _ => None,
         };
         Ok(Self { mesh, material })
@@ -103,6 +102,7 @@ impl Mesh {
             texture_coords,
             normals,
             faces,
+            material_switches,
         } = parsed_obj;
 
         assert!(vertices.len() == normals.len());
@@ -198,10 +198,13 @@ impl Mesh {
             })
             .collect::<Vec<_>>();
 
+        // TODO: currently switching materials not supported as we drop all switches
+        let material_id = material_switches.iter().next().map(|v| v.material_index);
+
         Self {
             vertices,
             triangles,
-            material_id: None,
+            material_id,
         }
     }
 }

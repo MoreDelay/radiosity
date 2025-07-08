@@ -48,7 +48,6 @@ pub struct ObjVertexTriplet {
 #[derive(Debug, PartialEq)]
 pub struct ObjF {
     pub triplets: Vec<ObjVertexTriplet>,
-    pub active_material: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -61,11 +60,18 @@ pub struct ObjUsemtl {
     pub name: String,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct ObjMaterialSwitch {
+    pub material_index: usize,
+    pub first_face: usize,
+}
+
 pub struct ParsedObj {
     pub vertices: Vec<ObjV>,
     pub texture_coords: Vec<ObjVt>,
     pub normals: Vec<ObjVn>,
     pub faces: Vec<ObjF>,
+    pub material_switches: Vec<ObjMaterialSwitch>,
 }
 
 pub enum ObjLine {
@@ -165,7 +171,6 @@ pub fn obj_face_element(
     n_vertices: usize,
     n_textures: usize,
     n_normals: usize,
-    active_material: Option<usize>,
 ) -> impl Fn(&str) -> IResult<&str, ObjF>
 where
 {
@@ -240,10 +245,7 @@ where
         let mut parser = delimited(tag("f"), parse_face, obj_blank_line);
         let (input, triplets) = parser.parse(input)?;
 
-        let face = ObjF {
-            triplets,
-            active_material,
-        };
+        let face = ObjF { triplets };
         Ok((input, face))
     }
 }
@@ -286,9 +288,9 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
     let mut texture_coords = Vec::new();
     let mut normals = Vec::new();
     let mut faces = Vec::new();
-    let mut materials = Vec::new();
+    let mut material_switches = Vec::new();
 
-    let mut active_material = None;
+    let mut materials = Vec::new();
 
     let mut line_index = 0;
     while reader.read_line(&mut buffer)? > 0 {
@@ -299,13 +301,8 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
                 obj_geometric_vertex.map(ObjLine::GeometricVertex),
                 obj_texture_coordinates.map(ObjLine::TextureCoordinates),
                 obj_vertex_normal.map(ObjLine::VertexNormal),
-                obj_face_element(
-                    vertices.len(),
-                    texture_coords.len(),
-                    normals.len(),
-                    active_material,
-                )
-                .map(ObjLine::FaceIndex),
+                obj_face_element(vertices.len(), texture_coords.len(), normals.len())
+                    .map(ObjLine::FaceIndex),
                 obj_material_library(abs_dir.to_path_buf()).map(ObjLine::MtlLib),
                 obj_material_use.map(ObjLine::UseMtl),
                 obj_ignore.map(|_| ObjLine::Empty),
@@ -327,14 +324,19 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
                 ObjLine::FaceIndex(obj_f) => faces.push(obj_f),
                 ObjLine::MtlLib(ObjMtllib { filepath }) => materials.extend(parse_mtl(&filepath)?),
                 ObjLine::UseMtl(ObjUsemtl { name }) => {
-                    let index = materials
+                    let material_index = materials
                         .iter()
                         .enumerate()
                         .find_map(|(i, mtl)| if mtl.name == name { Some(i) } else { None });
-                    let Some(index) = index else {
+                    let Some(material_index) = material_index else {
                         return Err(ParseError::WrongFormat(line_index));
                     };
-                    active_material = Some(index);
+
+                    let first_face = faces.len(); // the next face that gets pushes
+                    material_switches.push(ObjMaterialSwitch {
+                        material_index,
+                        first_face,
+                    });
                 }
             };
         }
@@ -345,6 +347,7 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
         texture_coords,
         normals,
         faces,
+        material_switches,
     };
     Ok((parsed_obj, materials))
 }
@@ -624,7 +627,7 @@ mod tests {
     #[test]
     fn test_obj_face_element() {
         let input = "f -4/1/1   2/-3/2   3/3/-2 # this is a comment\n";
-        let (rest, vec) = obj_face_element(4, 4, 4, None)(input).unwrap();
+        let (rest, vec) = obj_face_element(4, 4, 4)(input).unwrap();
         let expected = ObjF {
             triplets: vec![
                 ObjVertexTriplet {
@@ -643,7 +646,6 @@ mod tests {
                     index_normal: Some(2),
                 },
             ],
-            active_material: None,
         };
         assert_eq!(rest, "");
         assert_eq!(vec, expected);
@@ -652,7 +654,7 @@ mod tests {
     #[test]
     fn test_obj_face_element_fail() {
         let input = "f 1//1   2//2   3/3/3 # this is a comment\n";
-        let out = obj_face_element(4, 4, 4, None)(input);
+        let out = obj_face_element(4, 4, 4)(input);
         assert!(out.is_err());
     }
 
