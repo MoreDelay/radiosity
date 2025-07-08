@@ -69,16 +69,14 @@ impl RenderStateInit {
             .expect("no hardware available to render");
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    // list available features with adapter.features() or device.features()
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    label: None,
-                    memory_hints: Default::default(),
-                },
-                None, // trace path
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                // list available features with adapter.features() or device.features()
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                label: None,
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await
             .unwrap();
 
