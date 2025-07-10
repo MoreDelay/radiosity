@@ -144,9 +144,7 @@ impl TargetCamera {
     }
 }
 
-// Safety: CameraRaw restricts view_pos to last value != 0
-// and view_proj to row major matrix with bottom right != 0
-unsafe impl GpuTransfer for TargetCamera {
+impl GpuTransfer for TargetCamera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
         let view_pos = self.pos.to_homogeneous().into();
@@ -239,9 +237,7 @@ impl FirstPersonCamera {
     }
 }
 
-// Safety: CameraRaw restricts view_pos to last value != 0
-// and view_proj to row major matrix with bottom right != 0
-unsafe impl GpuTransfer for FirstPersonCamera {
+impl GpuTransfer for FirstPersonCamera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
         let view_pos = self.pos.to_homogeneous().into();

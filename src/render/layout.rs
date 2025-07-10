@@ -85,10 +85,7 @@ impl<'a> private::RawLayoutRef<'a> for TextureRaw<'a> {}
 /// pre-defined associated uses.
 ///
 /// This trait specifically is mainly used for data that is destined for Uniform buffers.
-///
-/// # Safety
-/// Values copied over into raw format must match the expectation of the raw format
-pub unsafe trait GpuTransfer {
+pub trait GpuTransfer {
     type Raw: private::RawLayout;
     fn to_raw(&self) -> Self::Raw;
 }
@@ -100,10 +97,7 @@ pub unsafe trait GpuTransfer {
 ///
 /// This trait specifically is mainly used for data that is destined for variable length buffers
 /// such as vertex buffers or texture buffers.
-///
-/// # Safety
-/// Slice must match with resulting TextureFormat and sizes in Extend3d
-pub unsafe trait GpuTransferRef<'a> {
+pub trait GpuTransferRef<'a> {
     type Raw: private::RawLayoutRef<'a>;
     fn to_raw(&'a self) -> Self::Raw;
 }

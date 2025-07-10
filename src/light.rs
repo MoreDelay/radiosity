@@ -14,8 +14,7 @@ pub struct Light {
     pub color: Color,
 }
 
-// Safety: LightRaw expects any values for position and any 3 values within [0, 1] for color
-unsafe impl GpuTransfer for Light {
+impl GpuTransfer for Light {
     type Raw = LightRaw;
     fn to_raw(&self) -> Self::Raw {
         let Self { pos, color } = *self;

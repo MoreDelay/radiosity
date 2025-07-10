@@ -199,7 +199,7 @@ impl Mesh {
             .collect::<Vec<_>>();
 
         // TODO: currently switching materials not supported as we drop all switches
-        let material_id = material_switches.iter().next().map(|v| v.material_index);
+        let material_id = material_switches.first().map(|v| v.material_index);
 
         Self {
             vertices,
@@ -209,8 +209,7 @@ impl Mesh {
     }
 }
 
-// Safety: Triangles consist of 3 indices, and we check that all indices stay within vertex slice.
-unsafe impl GpuTransfer for Mesh {
+impl GpuTransfer for Mesh {
     type Raw = TriangleBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
@@ -234,8 +233,7 @@ unsafe impl GpuTransfer for Mesh {
     }
 }
 
-// Safety: No additional expectations beyond those of `InstanceRaw`.
-unsafe impl GpuTransfer for Vec<Instance> {
+impl GpuTransfer for Vec<Instance> {
     type Raw = InstanceBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
@@ -244,8 +242,7 @@ unsafe impl GpuTransfer for Vec<Instance> {
     }
 }
 
-// Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels.
-unsafe impl<'a> GpuTransferRef<'a> for ColorTexture {
+impl<'a> GpuTransferRef<'a> for ColorTexture {
     type Raw = TextureRaw<'a>;
 
     fn to_raw(&'a self) -> TextureRaw<'a> {
@@ -262,8 +259,7 @@ unsafe impl<'a> GpuTransferRef<'a> for ColorTexture {
     }
 }
 
-// Safety: set size to the packed dimensions of the image, format matches with stored RGBA pixels
-unsafe impl<'a> GpuTransferRef<'a> for NormalTexture {
+impl<'a> GpuTransferRef<'a> for NormalTexture {
     type Raw = TextureRaw<'a>;
 
     fn to_raw(&'a self) -> TextureRaw<'a> {
@@ -280,7 +276,7 @@ unsafe impl<'a> GpuTransferRef<'a> for NormalTexture {
     }
 }
 
-unsafe impl GpuTransfer for Vertex {
+impl GpuTransfer for Vertex {
     type Raw = VertexRaw;
     fn to_raw(&self) -> Self::Raw {
         Self::Raw {
@@ -293,9 +289,7 @@ unsafe impl GpuTransfer for Vertex {
     }
 }
 
-// Safety: InstanceRaw restricts model to a row-major matrix with bottom right != 0
-// and normal to the the same as top left 3x3 matrix of model
-unsafe impl GpuTransfer for Instance {
+impl GpuTransfer for Instance {
     type Raw = InstanceRaw;
     fn to_raw(&self) -> Self::Raw {
         let model = (cgmath::Matrix4::from_translation(self.position)
