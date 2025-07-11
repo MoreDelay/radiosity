@@ -17,6 +17,14 @@ pub struct TargetCamera {
     frame: FrameDim,
 }
 
+#[derive(Debug, Default)]
+struct MovementState {
+    forward: bool,
+    backward: bool,
+    right: bool,
+    left: bool,
+}
+
 pub struct FirstPersonCamera {
     pos: cgmath::Point3<f32>,
     dir: cgmath::Vector3<f32>,
@@ -27,10 +35,11 @@ pub struct FirstPersonCamera {
     znear: f32,
     zfar: f32,
     frame: FrameDim,
+    movement_state: MovementState,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Direction {
+pub enum DirectionKey {
     W,
     A,
     S,
@@ -159,14 +168,17 @@ impl GpuTransfer for TargetCamera {
 
 impl FirstPersonCamera {
     pub fn new(pos: cgmath::Point3<f32>, dir: cgmath::Vector3<f32>, frame: FrameDim) -> Self {
+        let dir = dir.normalize();
         let up = cgmath::Vector3::unit_y();
-        let speed = 0.3;
+        let speed = 20.;
 
         let FrameDim(width, height) = frame;
         let aspect = width as f32 / height as f32;
         let fovy = 45.0;
         let znear = 0.1;
         let zfar = 100.0;
+
+        let movement_state = MovementState::default();
 
         Self {
             pos,
@@ -178,6 +190,7 @@ impl FirstPersonCamera {
             znear,
             zfar,
             frame,
+            movement_state,
         }
     }
 
@@ -187,14 +200,50 @@ impl FirstPersonCamera {
         self.aspect = width as f32 / height as f32;
     }
 
-    pub fn go(&mut self, direction: Direction) {
+    pub fn step(&mut self, epsilon: f32) -> bool {
+        let distance = self.speed * epsilon;
+        let moved_ws = match (self.movement_state.forward, self.movement_state.backward) {
+            (true, false) => {
+                self.do_move(DirectionKey::W, distance);
+                true
+            }
+            (false, true) => {
+                self.do_move(DirectionKey::S, distance);
+                true
+            }
+            _ => false,
+        };
+        let moved_ad = match (self.movement_state.left, self.movement_state.right) {
+            (true, false) => {
+                self.do_move(DirectionKey::A, distance);
+                true
+            }
+            (false, true) => {
+                self.do_move(DirectionKey::D, distance);
+                true
+            }
+            _ => false,
+        };
+        moved_ws | moved_ad
+    }
+
+    pub fn set_movement(&mut self, dir: DirectionKey, active: bool) {
+        match dir {
+            DirectionKey::W => self.movement_state.forward = active,
+            DirectionKey::A => self.movement_state.left = active,
+            DirectionKey::S => self.movement_state.backward = active,
+            DirectionKey::D => self.movement_state.right = active,
+        };
+    }
+
+    fn do_move(&mut self, direction: DirectionKey, distance: f32) {
         let right = self.dir.cross(self.up).normalize();
 
         let delta = match direction {
-            Direction::W => self.dir * self.speed,
-            Direction::A => -right * self.speed,
-            Direction::S => -self.dir * self.speed,
-            Direction::D => right * self.speed,
+            DirectionKey::W => self.dir * distance,
+            DirectionKey::A => -right * distance,
+            DirectionKey::S => -self.dir * distance,
+            DirectionKey::D => right * distance,
         };
 
         self.pos += delta;

@@ -225,10 +225,10 @@ impl ApplicationHandler for App {
                 } => {
                     let active = matches!(state, ElementState::Pressed);
                     match key {
-                        KeyCode::KeyW => scene.set_movement(camera::Direction::W, active),
-                        KeyCode::KeyA => scene.set_movement(camera::Direction::A, active),
-                        KeyCode::KeyS => scene.set_movement(camera::Direction::S, active),
-                        KeyCode::KeyD => scene.set_movement(camera::Direction::D, active),
+                        KeyCode::KeyW => scene.set_movement(camera::DirectionKey::W, active),
+                        KeyCode::KeyA => scene.set_movement(camera::DirectionKey::A, active),
+                        KeyCode::KeyS => scene.set_movement(camera::DirectionKey::S, active),
+                        KeyCode::KeyD => scene.set_movement(camera::DirectionKey::D, active),
                         _ => unreachable!(),
                     }
                 }

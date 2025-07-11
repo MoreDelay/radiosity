@@ -1,21 +1,12 @@
 use std::{path::PathBuf, sync::Arc};
 
-use cgmath::{EuclideanSpace, InnerSpace, Rotation3, Zero};
+use cgmath::{InnerSpace, Rotation3, Zero};
 use winit::window::Window;
 
 use crate::{camera, light, model, render};
 
-#[derive(Debug, Default)]
-struct PlayerMovementState {
-    forward: bool,
-    backward: bool,
-    right: bool,
-    left: bool,
-}
-
 pub struct SceneState {
     render_state: render::SceneRenderState,
-    paused: bool,
     pipeline_mode: render::PipelineMode,
     use_first_person_camera: bool,
     last_time: std::time::Instant,
@@ -25,7 +16,6 @@ pub struct SceneState {
     instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,
     first_person_camera: camera::FirstPersonCamera,
-    player_movement: PlayerMovementState,
     light: light::Light,
 }
 
@@ -48,7 +38,6 @@ impl SceneState {
             a: 255,
         };
         let light = light::Light::new(position, color);
-        let paused = false;
         let last_time = std::time::Instant::now();
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -95,19 +84,15 @@ impl SceneState {
         let pipeline_mode = render::PipelineMode::Flat;
         let use_first_person_camera = false;
 
-        let player_movement = PlayerMovementState::default();
-
         SceneState {
             pipeline_mode,
             render_state,
-            paused,
             use_first_person_camera,
             last_time,
             model,
             instances,
             target_camera,
             first_person_camera,
-            player_movement,
             light,
         }
     }
@@ -138,36 +123,21 @@ impl SceneState {
             let sleep_duration = minimum_elapsed - elapsed;
             std::thread::sleep(sleep_duration);
         }
-        let elapsed = self.last_time.elapsed();
-        let _fps = 1. / elapsed.as_secs_f64();
+        let epsilon = self.last_time.elapsed().as_secs_f32();
+        // let fps = 1. / epsilon.as_secs_f32();
+        // println!("FPS: {fps}");
         self.last_time = std::time::Instant::now();
-        // println!("FPS: {_fps}");
-
-        if self.paused {
-            return;
+        let moved = self.light.step(epsilon);
+        if moved {
+            self.render_state.update_light(&self.light);
         }
-        let old_pos = self.light.pos.to_vec();
-        let new_pos =
-            cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_y(), cgmath::Deg(1.))
-                * old_pos;
-        self.light.pos = cgmath::Point3::from_vec(new_pos);
-
-        self.render_state.update_light(&self.light);
 
         if self.use_first_person_camera {
-            match (self.player_movement.forward, self.player_movement.backward) {
-                (true, false) => self.first_person_camera.go(camera::Direction::W),
-                (false, true) => self.first_person_camera.go(camera::Direction::S),
-                _ => (),
+            let moved = self.first_person_camera.step(epsilon);
+            if moved {
+                self.render_state.update_camera(&self.first_person_camera);
             }
-            match (self.player_movement.left, self.player_movement.right) {
-                (true, false) => self.first_person_camera.go(camera::Direction::A),
-                (false, true) => self.first_person_camera.go(camera::Direction::D),
-                _ => (),
-            }
-            self.render_state.update_camera(&self.first_person_camera);
         }
-        // self.render_state.update_camera(&self.camera);
     }
 
     pub fn drag_camera(&mut self, movement: cgmath::Vector2<f32>) {
@@ -196,16 +166,8 @@ impl SceneState {
         self.render_state.update_camera(&self.target_camera);
     }
 
-    pub fn set_movement(&mut self, dir: camera::Direction, active: bool) {
-        if !self.use_first_person_camera {
-            return;
-        }
-        match dir {
-            camera::Direction::W => self.player_movement.forward = active,
-            camera::Direction::A => self.player_movement.left = active,
-            camera::Direction::S => self.player_movement.backward = active,
-            camera::Direction::D => self.player_movement.right = active,
-        };
+    pub fn set_movement(&mut self, dir: camera::DirectionKey, active: bool) {
+        self.first_person_camera.set_movement(dir, active);
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -214,8 +176,7 @@ impl SceneState {
 
     /// returns true if paused after toggling
     pub fn toggle_pause(&mut self) -> bool {
-        self.paused ^= true;
-        self.paused
+        self.light.toggle_pause()
     }
 
     /// toggles the pipeline mode and returns the mode used after toggling
