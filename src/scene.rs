@@ -5,6 +5,14 @@ use winit::window::Window;
 
 use crate::{camera, light, model, render};
 
+#[derive(Debug, Default)]
+struct PlayerMovementState {
+    forward: bool,
+    backward: bool,
+    right: bool,
+    left: bool,
+}
+
 pub struct SceneState {
     render_state: render::SceneRenderState,
     paused: bool,
@@ -17,6 +25,7 @@ pub struct SceneState {
     instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,
     first_person_camera: camera::FirstPersonCamera,
+    player_movement: PlayerMovementState,
     light: light::Light,
 }
 
@@ -86,6 +95,8 @@ impl SceneState {
         let pipeline_mode = render::PipelineMode::Flat;
         let use_first_person_camera = false;
 
+        let player_movement = PlayerMovementState::default();
+
         SceneState {
             pipeline_mode,
             render_state,
@@ -96,6 +107,7 @@ impl SceneState {
             instances,
             target_camera,
             first_person_camera,
+            player_movement,
             light,
         }
     }
@@ -141,6 +153,20 @@ impl SceneState {
         self.light.pos = cgmath::Point3::from_vec(new_pos);
 
         self.render_state.update_light(&self.light);
+
+        if self.use_first_person_camera {
+            match (self.player_movement.forward, self.player_movement.backward) {
+                (true, false) => self.first_person_camera.go(camera::Direction::W),
+                (false, true) => self.first_person_camera.go(camera::Direction::S),
+                _ => (),
+            }
+            match (self.player_movement.left, self.player_movement.right) {
+                (true, false) => self.first_person_camera.go(camera::Direction::A),
+                (false, true) => self.first_person_camera.go(camera::Direction::D),
+                _ => (),
+            }
+            self.render_state.update_camera(&self.first_person_camera);
+        }
         // self.render_state.update_camera(&self.camera);
     }
 
@@ -170,12 +196,16 @@ impl SceneState {
         self.render_state.update_camera(&self.target_camera);
     }
 
-    pub fn move_camera(&mut self, dir: camera::Direction) {
+    pub fn set_movement(&mut self, dir: camera::Direction, active: bool) {
         if !self.use_first_person_camera {
             return;
         }
-        self.first_person_camera.go(dir);
-        self.render_state.update_camera(&self.first_person_camera);
+        match dir {
+            camera::Direction::W => self.player_movement.forward = active,
+            camera::Direction::A => self.player_movement.left = active,
+            camera::Direction::S => self.player_movement.backward = active,
+            camera::Direction::D => self.player_movement.right = active,
+        };
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {

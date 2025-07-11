@@ -225,11 +225,8 @@ impl GpuTransfer for Mesh {
                 [i, j, k]
             })
             .collect();
-        let data = self.vertices.iter().map(|v| v.to_raw()).collect();
-        TriangleBufferRaw {
-            vertices: data,
-            indices,
-        }
+        let vertices = self.vertices.iter().map(|v| v.to_raw()).collect();
+        TriangleBufferRaw { vertices, indices }
     }
 }
 
@@ -237,8 +234,8 @@ impl GpuTransfer for Vec<Instance> {
     type Raw = InstanceBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
-        let data = self.iter().map(|i| i.to_raw()).collect();
-        InstanceBufferRaw { instances: data }
+        let instances = self.iter().map(|i| i.to_raw()).collect();
+        InstanceBufferRaw { instances }
     }
 }
 
@@ -279,7 +276,7 @@ impl<'a> GpuTransferRef<'a> for NormalTexture {
 impl GpuTransfer for Vertex {
     type Raw = VertexRaw;
     fn to_raw(&self) -> Self::Raw {
-        Self::Raw {
+        VertexRaw {
             position: self.position.into(),
             tex_coords: self.tex_coords.into(),
             normal: self.normal.into(),
@@ -296,7 +293,7 @@ impl GpuTransfer for Instance {
             * cgmath::Matrix4::from(self.rotation))
         .into();
         let normal = cgmath::Matrix3::from(self.rotation).into();
-        Self::Raw { model, normal }
+        InstanceRaw { model, normal }
     }
 }
 

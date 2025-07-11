@@ -220,15 +220,18 @@ impl ApplicationHandler for App {
                         PhysicalKey::Code(
                             key @ (KeyCode::KeyW | KeyCode::KeyA | KeyCode::KeyS | KeyCode::KeyD),
                         ),
-                    state: ElementState::Pressed,
+                    state: state @ (ElementState::Pressed | ElementState::Released),
                     ..
-                } => match key {
-                    KeyCode::KeyW => scene.move_camera(camera::Direction::W),
-                    KeyCode::KeyA => scene.move_camera(camera::Direction::A),
-                    KeyCode::KeyS => scene.move_camera(camera::Direction::S),
-                    KeyCode::KeyD => scene.move_camera(camera::Direction::D),
-                    _ => unreachable!(),
-                },
+                } => {
+                    let active = matches!(state, ElementState::Pressed);
+                    match key {
+                        KeyCode::KeyW => scene.set_movement(camera::Direction::W, active),
+                        KeyCode::KeyA => scene.set_movement(camera::Direction::A, active),
+                        KeyCode::KeyS => scene.set_movement(camera::Direction::S, active),
+                        KeyCode::KeyD => scene.set_movement(camera::Direction::D, active),
+                        _ => unreachable!(),
+                    }
+                }
                 KeyEvent {
                     physical_key: PhysicalKey::Code(KeyCode::KeyH),
                     state: ElementState::Pressed,

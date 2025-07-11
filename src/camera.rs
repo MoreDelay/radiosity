@@ -160,7 +160,7 @@ impl GpuTransfer for TargetCamera {
 impl FirstPersonCamera {
     pub fn new(pos: cgmath::Point3<f32>, dir: cgmath::Vector3<f32>, frame: FrameDim) -> Self {
         let up = cgmath::Vector3::unit_y();
-        let speed = 1.;
+        let speed = 0.3;
 
         let FrameDim(width, height) = frame;
         let aspect = width as f32 / height as f32;
