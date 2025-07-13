@@ -37,6 +37,13 @@ struct Light {
     color: vec3<f32>,
 }
 
+struct PhongInput{
+    specular_color: vec3<f32>,
+    specular_exponent: f32,
+    diffuse_color: vec3<f32>,
+    ambient_color: vec3<f32>,
+};
+
 // order from least frequently changed to most frequently changed
 // and try to reuse order in many pipelines for fewer switching
 // https://toji.dev/webgpu-best-practices/bind-groups#reusing-pipeline-layouts
@@ -45,6 +52,9 @@ var<uniform> camera: Camera;
 
 @group(1) @binding(0)
 var<uniform> light: Light;
+
+@group(2) @binding(0)
+var<uniform> phong: PhongInput;
 
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -88,19 +98,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let object_normal: vec4<f32> = vec4(0., 0., 1., 1.);
 
     let ambient_strength = 0.1;
-    let ambient_color = light.color * ambient_strength;
+    let ambient_color = phong.ambient_color * light.color * ambient_strength;
 
     let tangent_normal = vec3(0., 0., 1.);
     let light_dir = normalize(in.tangent_light_position - in.tangent_position);
     let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
-    let diffuse_color = light.color * diffuse_strength;
+    let diffuse_color = phong.diffuse_color * light.color * diffuse_strength;
 
     let view_dir = normalize(in.tangent_view_position - in.tangent_position);
     let half_dir = normalize(view_dir + light_dir);
-    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
+    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), phong.specular_exponent);
     // let reflect_dir = reflect(-light_dir, in.world_normal);
-    // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), 32.0);
-    let specular_color = specular_strength * light.color;
+    // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), phong.specular_exponent);
+    let specular_color = specular_strength * phong.specular_color * light.color;
 
     let result = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
     return vec4<f32>(result, object_color.a);

@@ -3,6 +3,8 @@ use std::{num::NonZeroU64, ops::Deref};
 use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
 
+use crate::render::layout::PhongRaw;
+
 use super::{
     CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, TriangleBufferRaw,
 };
@@ -19,6 +21,7 @@ pub enum TextureBindGroupLayout {
 
 pub struct CameraBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct LightBindGroupLayout(pub wgpu::BindGroupLayout);
+pub struct PhongBindGroupLayout(pub wgpu::BindGroupLayout);
 
 pub struct Texture {
     #[expect(unused)]
@@ -40,6 +43,11 @@ pub struct CameraBinding {
 }
 pub struct LightBinding {
     pub bind_group: wgpu::BindGroup,
+    pub buffer: wgpu::Buffer,
+}
+pub struct PhongBinding {
+    pub bind_group: wgpu::BindGroup,
+    #[expect(dead_code)]
     pub buffer: wgpu::Buffer,
 }
 
@@ -282,6 +290,25 @@ impl LightBindGroupLayout {
     }
 }
 
+impl PhongBindGroupLayout {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        Self(layout)
+    }
+}
+
 impl MaterialBinding {
     pub fn new<T, N>(
         device: &wgpu::Device,
@@ -425,6 +452,48 @@ impl LightBinding {
         let raw_data = data.to_raw();
         view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
     }
+}
+
+impl PhongBinding {
+    pub fn new<P>(
+        device: &wgpu::Device,
+        layout: &PhongBindGroupLayout,
+        data: &P,
+        label: Option<&str>,
+    ) -> Self
+    where
+        P: GpuTransfer<Raw = PhongRaw>,
+    {
+        let raw_data = data.to_raw();
+
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: label.map(|s| format!("{s} Phong Buffer")).as_deref(),
+            contents: bytemuck::cast_slice(&[raw_data]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: label.map(|s| format!("{s} Phong Bind Group")).as_deref(),
+            layout: &layout.0,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+        });
+        Self { bind_group, buffer }
+    }
+
+    // pub fn update<P>(&self, queue: &wgpu::Queue, data: &P)
+    // where
+    //     P: GpuTransfer<Raw = PhongRaw>,
+    // {
+    //     // make sure size unwrap never panics
+    //     const_assert_ne!(std::mem::size_of::<LightRaw>(), 0);
+    //     let size = NonZeroU64::try_from(std::mem::size_of::<LightRaw>() as u64).unwrap();
+    //
+    //     let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
+    //     let raw_data = data.to_raw();
+    //     view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
+    // }
 }
 
 impl MeshBuffer {

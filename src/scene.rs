@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use cgmath::{InnerSpace, Rotation3, Zero};
 use winit::window::Window;
 
-use crate::{camera, light, model, render};
+use crate::{camera, light, model, primitives, render};
 
 pub struct SceneState {
     render_state: render::SceneRenderState,
@@ -31,11 +31,10 @@ impl SceneState {
         let first_person_camera = camera::FirstPersonCamera::new(pos, target - pos, frame);
 
         let position = [2., 2., 2.].into();
-        let color = light::Color {
+        let color = primitives::Color {
             r: 255,
             g: 255,
             b: 255,
-            a: 255,
         };
         let light = light::Light::new(position, color);
         let last_time = std::time::Instant::now();
@@ -70,10 +69,19 @@ impl SceneState {
             None => (None, None),
         };
 
+        let material = model
+            .material
+            .as_ref()
+            .unwrap()
+            .phong_params
+            .as_ref()
+            .unwrap();
+
         let render_state = render::SceneRenderState::create(
             render_init,
             &target_camera,
             &light,
+            material,
             &model.mesh,
             &instances,
             color_texture,

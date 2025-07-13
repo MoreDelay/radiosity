@@ -1,25 +1,20 @@
 use cgmath::{EuclideanSpace, Rotation3};
 
-use crate::render::layout::{GpuTransfer, LightRaw};
-
-#[derive(Debug, Copy, Clone)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
+use crate::{
+    primitives,
+    render::layout::{GpuTransfer, LightRaw},
+};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Light {
     pos: cgmath::Point3<f32>,
-    color: Color,
+    color: primitives::Color,
     rotational_speed: f32,
     paused: bool,
 }
 
 impl Light {
-    pub fn new(pos: cgmath::Point3<f32>, color: Color) -> Self {
+    pub fn new(pos: cgmath::Point3<f32>, color: primitives::Color) -> Self {
         let rotational_speed = 90.;
         let paused = false;
         Self {
@@ -60,24 +55,5 @@ impl GpuTransfer for Light {
             color: color.into(),
             _padding2: 0,
         }
-    }
-}
-
-impl From<Color> for [f32; 4] {
-    fn from(val: Color) -> Self {
-        let Color { r, g, b, a } = val;
-        [
-            r as f32 / 255.,
-            g as f32 / 255.,
-            b as f32 / 255.,
-            a as f32 / 255.,
-        ]
-    }
-}
-
-impl From<Color> for [f32; 3] {
-    fn from(val: Color) -> Self {
-        let Color { r, g, b, .. } = val;
-        [r as f32 / 255., g as f32 / 255., b as f32 / 255.]
     }
 }

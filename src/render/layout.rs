@@ -28,6 +28,24 @@ pub struct LightRaw {
 }
 impl private::RawLayout for LightRaw {}
 
+/// Data format used to transfer light information to the GPU.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PhongRaw {
+    /// EXPECTS: values between 0 and 1.
+    pub specular_color: [f32; 3],
+    pub specular_exponent: f32,
+    /// EXPECTS: values between 0 and 1.
+    pub diffuse_color: [f32; 3],
+    // WGSL uniforms expect 4 float / 16 bytes alignment
+    // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
+    pub _padding1: u32,
+    /// EXPECTS: values between 0 and 1.
+    pub ambient_color: [f32; 3],
+    pub _padding2: u32,
+}
+impl private::RawLayout for PhongRaw {}
+
 /// Data format used to transfer information for a model vertex to the GPU.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

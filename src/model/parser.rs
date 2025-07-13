@@ -85,11 +85,29 @@ pub enum ObjLine {
 }
 
 #[derive(Error, Debug)]
-pub enum ParseError {
+pub enum ObjError {
     #[error("could not read file")]
     IoError(#[from] std::io::Error),
-    #[error("file is ill-formed at line {0}")]
-    WrongFormat(usize),
+    #[error("OBJ file {0} is ill-formed at line {1}")]
+    WrongFormat(PathBuf, usize),
+    #[error("issue with MTL file")]
+    FromMtl(#[source] MtlError),
+}
+
+#[derive(Error, Debug)]
+pub enum MtlError {
+    #[error("could not read file")]
+    IoError(#[from] std::io::Error),
+    #[error("MTL file {0} is ill-formed at line {1}")]
+    WrongFormat(PathBuf, usize),
+    #[error("MTL file {0} on line {1}, value is out of spec ")]
+    OutOfSpec(PathBuf, usize, #[source] MtlSpecError),
+}
+
+#[derive(Error, Debug)]
+pub enum MtlSpecError {
+    #[error("Specular component (Ns) must be within 0 and 10'000, got {0}")]
+    NsOutOfRange(f32),
 }
 
 fn end_of_line(input: &str) -> IResult<&str, ()> {
@@ -275,7 +293,7 @@ pub fn obj_material_use(input: &str) -> IResult<&str, ObjUsemtl> {
     Ok((input, usemtl))
 }
 
-pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError> {
+pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ObjError> {
     let abs_path = path.canonicalize()?;
     assert!(abs_path.is_file());
     let abs_dir = abs_path.parent().unwrap();
@@ -310,7 +328,7 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
             let (rest, line) = match parser.parse(&buffer) {
                 Ok((rest, line)) => (rest, line),
                 Err(nom::Err::Incomplete(_)) => break,
-                Err(_) => return Err(ParseError::WrongFormat(line_index)),
+                _ => return Err(ObjError::WrongFormat(path.to_path_buf(), line_index)),
             };
             drop(parser);
             let offset = buffer.offset(rest);
@@ -322,14 +340,16 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
                 ObjLine::TextureCoordinates(obj_vt) => texture_coords.push(obj_vt),
                 ObjLine::VertexNormal(obj_vn) => normals.push(obj_vn),
                 ObjLine::FaceIndex(obj_f) => faces.push(obj_f),
-                ObjLine::MtlLib(ObjMtllib { filepath }) => materials.extend(parse_mtl(&filepath)?),
+                ObjLine::MtlLib(ObjMtllib { filepath }) => {
+                    materials.extend(parse_mtl(&filepath).map_err(ObjError::FromMtl)?)
+                }
                 ObjLine::UseMtl(ObjUsemtl { name }) => {
                     let material_index = materials
                         .iter()
                         .enumerate()
                         .find_map(|(i, mtl)| if mtl.name == name { Some(i) } else { None });
                     let Some(material_index) = material_index else {
-                        return Err(ParseError::WrongFormat(line_index));
+                        return Err(ObjError::WrongFormat(path.to_path_buf(), line_index));
                     };
 
                     let first_face = faces.len(); // the next face that gets pushes
@@ -353,23 +373,44 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ParseError>
 }
 
 #[allow(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlNs(pub f32);
 #[allow(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlKa(pub f32, pub f32, pub f32);
 #[allow(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlKd(pub f32, pub f32, pub f32);
-#[expect(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlKs(pub f32, pub f32, pub f32);
 #[expect(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlKe(pub f32, pub f32, pub f32);
 #[expect(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlNi(pub f32);
 #[expect(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlD(pub f32);
 #[expect(unused)]
+#[derive(Debug, Clone, Copy)]
 pub struct MtlIllum(pub u32);
+#[derive(Debug, Clone)]
 pub struct MtlMapBump(pub PathBuf);
+#[derive(Debug, Clone)]
 pub struct MtlMapKd(pub PathBuf);
+
+impl MtlNs {
+    fn new(value: f32) -> Result<Self, MtlSpecError> {
+        const LO: f32 = 0.;
+        const HI: f32 = 10_000.;
+        let within_range = (LO..=HI).contains(&value);
+        if !within_range {
+            return Err(MtlSpecError::NsOutOfRange(value));
+        }
+        Ok(Self(value))
+    }
+}
 
 pub struct ParsedMtl {
     pub name: String,
@@ -406,7 +447,7 @@ impl ParsedMtl {
 enum MtlLine {
     Empty,
     New(String),
-    Ns(MtlNs),
+    Ns(Result<MtlNs, MtlSpecError>),
     Ka(MtlKa),
     Kd(MtlKd),
     Ks(MtlKs),
@@ -418,7 +459,7 @@ enum MtlLine {
     MapKd(MtlMapKd),
 }
 
-pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, ParseError> {
+pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
     let abs_path = path.canonicalize()?;
     assert!(abs_path.is_file());
     let abs_dir = abs_path.parent().unwrap();
@@ -438,7 +479,7 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, ParseError> {
             let newmtl = preceded(obj_whitespace, newmtl);
             let newmtl = preceded(tag("newmtl"), newmtl).map(String::from);
             let ns = preceded(obj_whitespace, float);
-            let ns = preceded(tag("Ns"), ns).map(MtlNs);
+            let ns = preceded(tag("Ns"), ns).map(MtlNs::new);
             let ka = (
                 preceded(obj_whitespace, float),
                 preceded(obj_whitespace, float),
@@ -497,7 +538,7 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, ParseError> {
             let (rest, line) = match parser.parse(&buffer) {
                 Ok((rest, line)) => (rest, line),
                 Err(nom::Err::Incomplete(_)) => break,
-                Err(_) => return Err(ParseError::WrongFormat(line_index)),
+                Err(_) => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
             };
             drop(parser);
             let offset = buffer.offset(rest);
@@ -512,44 +553,49 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, ParseError> {
                     current_mtl = Some(ParsedMtl::new(name))
                 }
                 MtlLine::Ns(mtl_ns) => match current_mtl.as_mut() {
-                    Some(mtl) if mtl.ns.is_none() => mtl.ns = Some(mtl_ns),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    Some(mtl) if mtl.ns.is_none() => {
+                        mtl.ns =
+                            Some(mtl_ns.map_err(|e| {
+                                MtlError::OutOfSpec(path.to_path_buf(), line_index, e)
+                            })?)
+                    }
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::Ka(mtl_ka) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.ka.is_none() => mtl.ka = Some(mtl_ka),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::Kd(mtl_kd) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.kd.is_none() => mtl.kd = Some(mtl_kd),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::Ks(mtl_ks) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.ks.is_none() => mtl.ks = Some(mtl_ks),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::Ke(mtl_ke) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.ke.is_none() => mtl.ke = Some(mtl_ke),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::Ni(mtl_ni) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.ni.is_none() => mtl.ni = Some(mtl_ni),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::D(mtl_d) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.d.is_none() => mtl.d = Some(mtl_d),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::Illum(mtl_illum) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.illum.is_none() => mtl.illum = Some(mtl_illum),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::MapBump(mtl_map_bump) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.map_bump.is_none() => mtl.map_bump = Some(mtl_map_bump),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
                 MtlLine::MapKd(mtl_map_kd) => match current_mtl.as_mut() {
                     Some(mtl) if mtl.map_kd.is_none() => mtl.map_kd = Some(mtl_map_kd),
-                    _ => return Err(ParseError::WrongFormat(line_index)),
+                    _ => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
                 },
             };
         }

@@ -42,6 +42,7 @@ pub struct SceneRenderState {
     depth_texture: resource::Texture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
+    phong_binding: resource::PhongBinding,
     light_pipeline: pipeline::LightPipeline,
 }
 
@@ -118,10 +119,12 @@ impl RenderStateInit {
 }
 
 impl SceneRenderState {
-    pub fn create<C, L, M, I, T, N>(
+    #[allow(clippy::too_many_arguments)]
+    pub fn create<C, L, P, M, I, T, N>(
         init: RenderStateInit,
         camera: &C,
         light: &L,
+        phong: &P,
         mesh: &M,
         instances: &I,
         color_texture: Option<&T>,
@@ -130,6 +133,7 @@ impl SceneRenderState {
     where
         C: GpuTransfer<Raw = CameraRaw>,
         L: GpuTransfer<Raw = LightRaw>,
+        P: GpuTransfer<Raw = PhongRaw>,
         M: GpuTransfer<Raw = TriangleBufferRaw>,
         I: GpuTransfer<Raw = InstanceBufferRaw>,
         T: GpuTransferTexture,
@@ -160,6 +164,10 @@ impl SceneRenderState {
         let light_binding =
             resource::LightBinding::new(&device, &light_layout, light, Some("Single"));
 
+        let phong_layout = resource::PhongBindGroupLayout::new(&device);
+        let phong_binding =
+            resource::PhongBinding::new(&device, &phong_layout, phong, Some("Single"));
+
         let normal_pipeline = match &texture_layout {
             resource::TextureBindGroupLayout::Normal(layout) => {
                 Some(pipeline::NormalScenePipeline::new(
@@ -168,6 +176,7 @@ impl SceneRenderState {
                     layout,
                     &camera_layout,
                     &light_layout,
+                    &phong_layout,
                 )?)
             }
             resource::TextureBindGroupLayout::Color(_) => None,
@@ -182,6 +191,7 @@ impl SceneRenderState {
                     layout,
                     &camera_layout,
                     &light_layout,
+                    &phong_layout,
                 )?)
             }
             resource::TextureBindGroupLayout::Color(layout) => {
@@ -191,6 +201,7 @@ impl SceneRenderState {
                     layout,
                     &camera_layout,
                     &light_layout,
+                    &phong_layout,
                 )?)
             }
             resource::TextureBindGroupLayout::Flat(_) => None,
@@ -203,6 +214,7 @@ impl SceneRenderState {
                 layout,
                 &camera_layout,
                 &light_layout,
+                &phong_layout,
             )?,
             resource::TextureBindGroupLayout::Color(layout) => pipeline::FlatScenePipeline::new(
                 &device,
@@ -210,6 +222,7 @@ impl SceneRenderState {
                 layout,
                 &camera_layout,
                 &light_layout,
+                &phong_layout,
             )?,
             resource::TextureBindGroupLayout::Flat(layout) => pipeline::FlatScenePipeline::new(
                 &device,
@@ -217,6 +230,7 @@ impl SceneRenderState {
                 layout,
                 &camera_layout,
                 &light_layout,
+                &phong_layout,
             )?,
         };
 
@@ -245,6 +259,7 @@ impl SceneRenderState {
             depth_texture,
             camera_binding,
             light_binding,
+            phong_binding,
             normal_pipeline,
             color_pipeline,
             flat_pipeline,
@@ -344,7 +359,8 @@ impl SceneRenderState {
         );
         render_pass.set_bind_group(0, &self.camera_binding.bind_group, &[]);
         render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
-        render_pass.set_bind_group(2, &self.material_binding.bind_group, &[]);
+        render_pass.set_bind_group(2, &self.phong_binding.bind_group, &[]);
+        render_pass.set_bind_group(3, &self.material_binding.bind_group, &[]);
         render_pass.draw_indexed(
             0..self.mesh_buffer.num_indices,
             0,

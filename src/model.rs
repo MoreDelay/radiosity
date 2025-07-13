@@ -4,12 +4,15 @@ use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
 use parser::{ObjVertexTriplet, ParsedObj};
 
-use crate::render::layout::{
-    GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, TextureRaw, TriangleBufferRaw,
-    VertexRaw,
+use crate::{
+    primitives::{Color, Vertex},
+    render::layout::{
+        GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, PhongRaw, TextureRaw,
+        TriangleBufferRaw,
+    },
 };
 
-mod parser;
+pub mod parser;
 
 pub const NUM_INSTANCES_PER_ROW: u32 = 10;
 
@@ -17,15 +20,6 @@ pub const NUM_INSTANCES_PER_ROW: u32 = 10;
 pub struct Instance {
     pub position: cgmath::Vector3<f32>,
     pub rotation: cgmath::Quaternion<f32>,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct Vertex {
-    pub position: cgmath::Point3<f32>,
-    pub tex_coords: cgmath::Point2<f32>,
-    pub normal: cgmath::Vector3<f32>,
-    pub tangent: cgmath::Vector3<f32>,
-    pub bitangent: cgmath::Vector3<f32>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -42,9 +36,18 @@ pub struct Model {
     pub material: Option<Material>,
 }
 
+#[derive(Clone, Debug)]
+pub struct PhongParameters {
+    pub ambient_color: Color,
+    pub diffuse_color: Color,
+    pub specular_color: Color,
+    pub specular_exponent: f32,
+}
+
 pub struct Material {
     #[expect(unused)]
     pub name: String,
+    pub phong_params: Option<PhongParameters>,
     pub color_texture: Option<ColorTexture>,
     pub normal_texture: Option<NormalTexture>,
 }
@@ -74,8 +77,30 @@ impl Material {
             }
         };
 
+        let white = Color {
+            r: 255,
+            g: 255,
+            b: 255,
+        };
+
+        let ambient_color = mtl.ka.map(|c| c.into()).unwrap_or(white);
+        let diffuse_color = mtl.kd.map(|c| c.into()).unwrap_or(white);
+        let specular_color = mtl.ks.map(|c| c.into()).unwrap_or(white);
+        let specular_exponent = mtl
+            .ns
+            .map(|parser::MtlNs(exponent)| exponent)
+            .unwrap_or(10.);
+
+        let phong_params = Some(PhongParameters {
+            ambient_color,
+            diffuse_color,
+            specular_color,
+            specular_exponent,
+        });
+
         Ok(Self {
             name: mtl.name.to_string(),
+            phong_params,
             color_texture,
             normal_texture,
         })
@@ -273,19 +298,6 @@ impl<'a> GpuTransferRef<'a> for NormalTexture {
     }
 }
 
-impl GpuTransfer for Vertex {
-    type Raw = VertexRaw;
-    fn to_raw(&self) -> Self::Raw {
-        VertexRaw {
-            position: self.position.into(),
-            tex_coords: self.tex_coords.into(),
-            normal: self.normal.into(),
-            tangent: self.tangent.into(),
-            bitangent: self.bitangent.into(),
-        }
-    }
-}
-
 impl GpuTransfer for Instance {
     type Raw = InstanceRaw;
     fn to_raw(&self) -> Self::Raw {
@@ -300,5 +312,20 @@ impl GpuTransfer for Instance {
 impl From<Triplet> for (u32, u32, u32) {
     fn from(Triplet(i, j, k): Triplet) -> Self {
         (i, j, k)
+    }
+}
+
+impl GpuTransfer for PhongParameters {
+    type Raw = PhongRaw;
+
+    fn to_raw(&self) -> Self::Raw {
+        PhongRaw {
+            specular_color: self.specular_color.into(),
+            specular_exponent: self.specular_exponent,
+            diffuse_color: self.diffuse_color.into(),
+            _padding1: 0,
+            ambient_color: self.ambient_color.into(),
+            _padding2: 0,
+        }
     }
 }
