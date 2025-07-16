@@ -52,7 +52,7 @@ pub struct ObjF {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ObjMtllib {
-    pub filepath: PathBuf,
+    pub name: String,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -108,6 +108,70 @@ pub enum MtlError {
 pub enum MtlSpecError {
     #[error("Specular component (Ns) must be within 0 and 10'000, got {0}")]
     NsOutOfRange(f32),
+}
+
+pub trait MtlManager {
+    /// Request to load the provided MTL library. The argument is just the provided name within the
+    /// file which typically is concatenated with the parent directory of the original obj file.
+    fn request_load(&mut self, name: &str) -> Result<Vec<String>, MtlError>;
+
+    /// Given the name of a material, this call should return the index to the material that
+    /// uniquely identifies the corresponding material for this manager.
+    fn request_index(&self, name: &str) -> usize;
+}
+
+pub struct SimpleMtlManager {
+    root_dir: PathBuf,
+    materials: Vec<ParsedMtl>,
+    names: Vec<String>,
+}
+
+impl SimpleMtlManager {
+    pub fn new(root_dir: PathBuf) -> Self {
+        Self {
+            root_dir,
+            materials: Vec::new(),
+            names: Vec::new(),
+        }
+    }
+
+    #[expect(unused)]
+    pub fn len(&self) -> usize {
+        self.materials.len()
+    }
+
+    pub fn get(&self, index: usize) -> &ParsedMtl {
+        &self.materials[index]
+    }
+}
+
+impl MtlManager for SimpleMtlManager {
+    fn request_load(&mut self, name: &str) -> Result<Vec<String>, MtlError> {
+        let path = self.root_dir.join(name);
+        let loaded_mtls = parse_mtl(&path)?;
+        let mut mtls_in_this_lib = Vec::new();
+
+        for mtl in loaded_mtls {
+            mtls_in_this_lib.push(mtl.name.clone());
+
+            let already_loaded = self.names.iter().any(|n| n == &mtl.name);
+            if already_loaded {
+                continue;
+            }
+            self.names.push(mtl.name.clone());
+            self.materials.push(mtl);
+        }
+
+        Ok(mtls_in_this_lib)
+    }
+
+    fn request_index(&self, name: &str) -> usize {
+        self.names
+            .iter()
+            .enumerate()
+            .find_map(|(i, n)| if n == name { Some(i) } else { None })
+            .unwrap()
+    }
 }
 
 fn end_of_line(input: &str) -> IResult<&str, ()> {
@@ -268,18 +332,15 @@ where
     }
 }
 
-pub fn obj_material_library(root_dir: PathBuf) -> impl Fn(&str) -> IResult<&str, ObjMtllib> {
-    move |input: &str| {
-        let parser = take_while1(|c: char| !c.is_whitespace());
-        let parser = verify(parser, |s: &str| s.ends_with(".mtl"));
-        let parser = preceded(obj_whitespace, parser);
-        let mut parser = delimited(tag("mtllib"), parser, obj_blank_line);
+pub fn obj_material_library(input: &str) -> IResult<&str, ObjMtllib> {
+    let parser = take_while1(|c: char| !c.is_whitespace());
+    let parser = preceded(obj_whitespace, parser);
+    let mut parser = delimited(tag("mtllib"), parser, obj_blank_line);
 
-        let (input, filepath) = parser.parse(input)?;
-        let filepath = root_dir.join(filepath);
-        let mtllib = ObjMtllib { filepath };
-        Ok((input, mtllib))
-    }
+    let (input, name) = parser.parse(input)?;
+    let name = name.to_string();
+    let mtllib = ObjMtllib { name };
+    Ok((input, mtllib))
 }
 
 pub fn obj_material_use(input: &str) -> IResult<&str, ObjUsemtl> {
@@ -293,11 +354,7 @@ pub fn obj_material_use(input: &str) -> IResult<&str, ObjUsemtl> {
     Ok((input, usemtl))
 }
 
-pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ObjError> {
-    let abs_path = path.canonicalize()?;
-    assert!(abs_path.is_file());
-    let abs_dir = abs_path.parent().unwrap();
-
+pub fn load_obj(path: &Path, mtl_manager: &mut impl MtlManager) -> Result<ParsedObj, ObjError> {
     let file = File::open(path)?;
     let mut buffer = String::new();
     let mut reader = BufReader::new(file);
@@ -308,7 +365,8 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ObjError> {
     let mut faces = Vec::new();
     let mut material_switches = Vec::new();
 
-    let mut materials = Vec::new();
+    // let mut materials = Vec::new();
+    let mut material_names = Vec::new();
 
     let mut line_index = 0;
     while reader.read_line(&mut buffer)? > 0 {
@@ -321,7 +379,7 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ObjError> {
                 obj_vertex_normal.map(ObjLine::VertexNormal),
                 obj_face_element(vertices.len(), texture_coords.len(), normals.len())
                     .map(ObjLine::FaceIndex),
-                obj_material_library(abs_dir.to_path_buf()).map(ObjLine::MtlLib),
+                obj_material_library.map(ObjLine::MtlLib),
                 obj_material_use.map(ObjLine::UseMtl),
                 obj_ignore.map(|_| ObjLine::Empty),
             ));
@@ -340,17 +398,19 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ObjError> {
                 ObjLine::TextureCoordinates(obj_vt) => texture_coords.push(obj_vt),
                 ObjLine::VertexNormal(obj_vn) => normals.push(obj_vn),
                 ObjLine::FaceIndex(obj_f) => faces.push(obj_f),
-                ObjLine::MtlLib(ObjMtllib { filepath }) => {
-                    materials.extend(parse_mtl(&filepath).map_err(ObjError::FromMtl)?)
+                ObjLine::MtlLib(ObjMtllib { name }) => {
+                    let found_names = mtl_manager
+                        .request_load(&name)
+                        .map_err(|e| ObjError::FromMtl(e))?;
+
+                    material_names.extend(found_names);
                 }
                 ObjLine::UseMtl(ObjUsemtl { name }) => {
-                    let material_index = materials
-                        .iter()
-                        .enumerate()
-                        .find_map(|(i, mtl)| if mtl.name == name { Some(i) } else { None });
-                    let Some(material_index) = material_index else {
+                    let valid_name = material_names.iter().any(|old| &name == old);
+                    if !valid_name {
                         return Err(ObjError::WrongFormat(path.to_path_buf(), line_index));
-                    };
+                    }
+                    let material_index = mtl_manager.request_index(&name);
 
                     let first_face = faces.len(); // the next face that gets pushes
                     material_switches.push(ObjMaterialSwitch {
@@ -369,7 +429,7 @@ pub fn parse_obj(path: &Path) -> Result<(ParsedObj, Vec<ParsedMtl>), ObjError> {
         faces,
         material_switches,
     };
-    Ok((parsed_obj, materials))
+    Ok(parsed_obj)
 }
 
 #[allow(unused)]
@@ -708,7 +768,8 @@ mod tests {
     #[test]
     fn test_parse_obj() {
         let path = PathBuf::from("./resources/viking_room.obj");
-        let (obj, _mtl) = parse_obj(&path).unwrap();
+        let mut mtl_manager = SimpleMtlManager::new(PathBuf::from("./resouces"));
+        let obj = load_obj(&path, &mut mtl_manager).unwrap();
         assert!(obj.vertices.len() == 4675);
         assert!(obj.texture_coords.len() == 4675);
         assert!(obj.normals.len() == 2868);

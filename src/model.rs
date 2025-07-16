@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
 use parser::{ObjVertexTriplet, ParsedObj};
 
 use crate::{
+    model::parser::load_obj,
     primitives::{Color, Vertex},
     render::layout::{
         GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, PhongRaw, TextureRaw,
@@ -15,6 +16,16 @@ use crate::{
 pub mod parser;
 
 pub const NUM_INSTANCES_PER_ROW: u32 = 10;
+
+pub struct ModelStorage {
+    current_root: Option<PathBuf>,
+    meshes: Vec<Mesh>,
+    materials: Vec<Material>,
+    name_to_mesh: Vec<(String, usize)>,
+    name_to_mtl: Vec<(String, usize)>,
+    map_mtl_to_mesh: Vec<Vec<usize>>,
+    meshes_without_mtl: Vec<usize>,
+}
 
 #[derive(Copy, Clone, Debug)]
 pub struct Instance {
@@ -56,6 +67,77 @@ pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<Triplet>,
     pub material_id: Option<usize>,
+}
+
+impl ModelStorage {
+    #[expect(unused)]
+    fn new() -> Self {
+        Self {
+            current_root: None,
+            meshes: Vec::new(),
+            materials: Vec::new(),
+            name_to_mesh: Vec::new(),
+            name_to_mtl: Vec::new(),
+            map_mtl_to_mesh: Vec::new(),
+            meshes_without_mtl: Vec::new(),
+        }
+    }
+
+    #[expect(unused)]
+    fn load_mesh(&mut self, path: &Path) -> anyhow::Result<()> {
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        let already_loaded = self.name_to_mesh.iter().any(|(n, _)| n == &name);
+        if already_loaded {
+            return Ok(());
+        }
+
+        let root = path.parent().unwrap().to_path_buf();
+        self.current_root = Some(root);
+
+        let loaded_obj = load_obj(path, self)?;
+        let mesh = Mesh::new(loaded_obj);
+
+        let next_index = self.meshes.len();
+        match mesh.material_id {
+            Some(index) => self.map_mtl_to_mesh[index].push(next_index),
+            None => self.meshes_without_mtl.push(next_index),
+        }
+
+        self.name_to_mesh.push((name, next_index));
+        self.meshes.push(mesh);
+        Ok(())
+    }
+}
+
+impl parser::MtlManager for ModelStorage {
+    fn request_load(&mut self, name: &str) -> Result<Vec<String>, parser::MtlError> {
+        let root = self.current_root.as_ref().unwrap();
+        let path = root.join(name);
+        let loaded_mtls = parser::parse_mtl(&path)?;
+        let mut mtls_in_this_lib = Vec::new();
+
+        for mtl in loaded_mtls {
+            mtls_in_this_lib.push(mtl.name.clone());
+
+            let already_loaded = self.name_to_mtl.iter().any(|(n, _)| n == &mtl.name);
+            if already_loaded {
+                continue;
+            }
+            let next_index = self.materials.len();
+            self.name_to_mtl.push((mtl.name.clone(), next_index));
+            let new_material = Material::load(root, &mtl).unwrap();
+            self.materials.push(new_material);
+        }
+
+        Ok(mtls_in_this_lib)
+    }
+
+    fn request_index(&self, name: &str) -> usize {
+        self.name_to_mtl
+            .iter()
+            .find_map(|(n, i)| if n == name { Some(*i) } else { None })
+            .unwrap()
+    }
 }
 
 impl Material {
@@ -108,12 +190,15 @@ impl Material {
 }
 
 impl Model {
-    pub fn load(file_name: &Path) -> anyhow::Result<Self> {
-        let (parsed_obj, materials) = parser::parse_obj(file_name)?;
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        let abs_dir = path.canonicalize().unwrap().parent().unwrap().to_path_buf();
+        let mut mtl_manager = parser::SimpleMtlManager::new(abs_dir.clone());
+
+        let parsed_obj = parser::load_obj(path, &mut mtl_manager)?;
+
         let mesh = Mesh::new(parsed_obj);
-        let root = file_name.parent().expect("texture should not be root");
         let material = match mesh.material_id {
-            Some(index) => Some(Material::load(root, &materials[index])?),
+            Some(index) => Some(Material::load(&abs_dir, mtl_manager.get(index))?),
             _ => None,
         };
         Ok(Self { mesh, material })
