@@ -1,5 +1,5 @@
 use crate::{
-    model::parser::{self, MtlKa},
+    model::parser::mtl,
     render::layout::{GpuTransfer, VertexRaw},
 };
 
@@ -39,8 +39,8 @@ impl From<Color> for [f32; 3] {
     }
 }
 
-impl From<MtlKa> for Color {
-    fn from(MtlKa(r, g, b): MtlKa) -> Self {
+impl From<mtl::MtlKa> for Color {
+    fn from(mtl::MtlKa(r, g, b): mtl::MtlKa) -> Self {
         let r = (r * 255.) as u8;
         let g = (g * 255.) as u8;
         let b = (b * 255.) as u8;
@@ -48,8 +48,8 @@ impl From<MtlKa> for Color {
     }
 }
 
-impl From<parser::MtlKd> for Color {
-    fn from(parser::MtlKd(r, g, b): parser::MtlKd) -> Self {
+impl From<mtl::MtlKd> for Color {
+    fn from(mtl::MtlKd(r, g, b): mtl::MtlKd) -> Self {
         let r = (r * 255.) as u8;
         let g = (g * 255.) as u8;
         let b = (b * 255.) as u8;
@@ -57,8 +57,8 @@ impl From<parser::MtlKd> for Color {
     }
 }
 
-impl From<parser::MtlKs> for Color {
-    fn from(parser::MtlKs(r, g, b): parser::MtlKs) -> Self {
+impl From<mtl::MtlKs> for Color {
+    fn from(mtl::MtlKs(r, g, b): mtl::MtlKs) -> Self {
         let r = (r * 255.) as u8;
         let g = (g * 255.) as u8;
         let b = (b * 255.) as u8;

@@ -2,10 +2,9 @@ use std::path::{Path, PathBuf};
 
 use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
-use parser::{ObjVertexTriplet, ParsedObj};
 
 use crate::{
-    model::parser::load_obj,
+    model::parser::{mtl, obj},
     primitives::{Color, Vertex},
     render::layout::{
         GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, PhongRaw, TextureRaw,
@@ -94,7 +93,7 @@ impl ModelStorage {
         let root = path.parent().unwrap().to_path_buf();
         self.current_root = Some(root);
 
-        let loaded_obj = load_obj(path, self)?;
+        let loaded_obj = obj::load_obj(path, self)?;
         let mesh = Mesh::new(loaded_obj);
 
         let next_index = self.meshes.len();
@@ -110,10 +109,10 @@ impl ModelStorage {
 }
 
 impl parser::MtlManager for ModelStorage {
-    fn request_load(&mut self, name: &str) -> Result<Vec<String>, parser::MtlError> {
+    fn request_load(&mut self, name: &str) -> Result<Vec<String>, parser::mtl::MtlError> {
         let root = self.current_root.as_ref().unwrap();
         let path = root.join(name);
-        let loaded_mtls = parser::parse_mtl(&path)?;
+        let loaded_mtls = parser::mtl::parse_mtl(&path)?;
         let mut mtls_in_this_lib = Vec::new();
 
         for mtl in loaded_mtls {
@@ -141,10 +140,10 @@ impl parser::MtlManager for ModelStorage {
 }
 
 impl Material {
-    pub fn load(root: &Path, mtl: &parser::ParsedMtl) -> anyhow::Result<Self> {
+    pub fn load(root: &Path, mtl: &mtl::ParsedMtl) -> anyhow::Result<Self> {
         let color_texture = match &mtl.map_kd {
             None => None,
-            Some(parser::MtlMapKd(path)) => {
+            Some(mtl::MtlMapKd(path)) => {
                 let path = root.join(path);
                 let image = ImageReader::open(path)?.decode()?;
                 Some(ColorTexture(image.into()))
@@ -152,7 +151,7 @@ impl Material {
         };
         let normal_texture = match &mtl.map_bump {
             None => None,
-            Some(parser::MtlMapBump(path)) => {
+            Some(mtl::MtlMapBump(path)) => {
                 let path = root.join(path);
                 let image = ImageReader::open(path)?.decode()?;
                 Some(NormalTexture(image.into()))
@@ -168,10 +167,7 @@ impl Material {
         let ambient_color = mtl.ka.map(|c| c.into()).unwrap_or(white);
         let diffuse_color = mtl.kd.map(|c| c.into()).unwrap_or(white);
         let specular_color = mtl.ks.map(|c| c.into()).unwrap_or(white);
-        let specular_exponent = mtl
-            .ns
-            .map(|parser::MtlNs(exponent)| exponent)
-            .unwrap_or(10.);
+        let specular_exponent = mtl.ns.map(|mtl::MtlNs(exponent)| exponent).unwrap_or(10.);
 
         let phong_params = Some(PhongParameters {
             ambient_color,
@@ -194,7 +190,7 @@ impl Model {
         let abs_dir = path.canonicalize().unwrap().parent().unwrap().to_path_buf();
         let mut mtl_manager = parser::SimpleMtlManager::new(abs_dir.clone());
 
-        let parsed_obj = parser::load_obj(path, &mut mtl_manager)?;
+        let parsed_obj = parser::obj::load_obj(path, &mut mtl_manager)?;
 
         let mesh = Mesh::new(parsed_obj);
         let material = match mesh.material_id {
@@ -206,8 +202,8 @@ impl Model {
 }
 
 impl Mesh {
-    fn new(parsed_obj: ParsedObj) -> Self {
-        let ParsedObj {
+    fn new(parsed_obj: obj::ParsedObj) -> Self {
+        let obj::ParsedObj {
             vertices,
             texture_coords,
             normals,
@@ -219,7 +215,7 @@ impl Mesh {
 
         let mut vertices = vertices
             .into_iter()
-            .map(|parser::ObjV { x, y, z, .. }| {
+            .map(|obj::ObjV { x, y, z, .. }| {
                 let position = cgmath::Point3 { x, y, z };
                 let tex_coords = cgmath::Point2::origin();
                 let zero = cgmath::Vector3::zero();
@@ -240,7 +236,7 @@ impl Mesh {
                 let Some(i_normal) = triplet.index_normal else {
                     continue;
                 };
-                let parser::ObjVn { i, j, k } = normals[i_normal];
+                let obj::ObjVn { i, j, k } = normals[i_normal];
                 let normal = cgmath::Vector3 { x: i, y: j, z: k }.normalize();
                 let unit = if (normal - cgmath::Vector3::unit_x()).magnitude() > 0.1 {
                     cgmath::Vector3::unit_x()
@@ -264,7 +260,7 @@ impl Mesh {
         // set texture coordinates and normals as specified by faces
         for face in faces.iter() {
             for triplet in face.triplets.iter() {
-                let ObjVertexTriplet {
+                let obj::ObjVertexTriplet {
                     index_vertex,
                     index_texture,
                     index_normal,
@@ -272,14 +268,14 @@ impl Mesh {
 
                 if let Some(index_texture) = index_texture {
                     let tex_coords = texture_coords[*index_texture];
-                    let parser::ObjVt { u, v, w: _ } = tex_coords;
+                    let obj::ObjVt { u, v, w: _ } = tex_coords;
                     let vertex_tex = &mut vertices[*index_vertex].tex_coords;
                     *vertex_tex = cgmath::Point2 { x: u, y: v };
                 }
 
                 if let Some(index_normal) = index_normal {
                     let normal = normals[*index_normal];
-                    let parser::ObjVn { i, j, k } = normal;
+                    let obj::ObjVn { i, j, k } = normal;
                     let vertex_normal = &mut vertices[*index_vertex].normal;
                     *vertex_normal = cgmath::Vector3 { x: i, y: j, z: k };
                 }
@@ -296,7 +292,7 @@ impl Mesh {
                 };
                 other
                     .windows(2)
-                    .flat_map(<&[ObjVertexTriplet; 2]>::try_from)
+                    .flat_map(<&[obj::ObjVertexTriplet; 2]>::try_from)
                     .map(|[second, third]| {
                         Triplet(
                             first.index_vertex as u32,
