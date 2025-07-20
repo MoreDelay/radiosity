@@ -91,7 +91,7 @@ impl DrawManager {
         label: Option<&str>,
     ) {
         let mesh = storage.get_mesh(mesh_index);
-        assert!(mesh.triangles.len() > 0);
+        assert!(!mesh.triangles.is_empty());
         let buffer_index = self.render_state.borrow_mut().add_mesh_buffer(mesh, label);
 
         let mesh_info_index = self.meshes.len();
@@ -183,7 +183,7 @@ impl<'a> Iterator for DrawMaterialIterator<'a> {
     type Item = render::DrawSlice;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some((_, subscription)) = self.iterator.next() {
+        for (_, subscription) in self.iterator.by_ref() {
             let MaterialSubscription { slice, mesh_index } = subscription;
             let mesh_info = self
                 .manager

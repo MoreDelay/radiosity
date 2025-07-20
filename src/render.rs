@@ -231,7 +231,7 @@ impl RenderState {
         self.camera_binding.update(&self.queue, data);
     }
 
-    pub fn draw<'a, I, D>(
+    pub fn draw<I, D>(
         &mut self,
         mtl_iter: I,
         light_mesh_index: Option<MeshBufferIndex>,

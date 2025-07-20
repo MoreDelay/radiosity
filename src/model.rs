@@ -133,7 +133,7 @@ impl<'a> parser::MtlManager for ModelStorageInserter<'a> {
             if already_loaded {
                 continue;
             }
-            let new_material = Material::load(&self.root_dir, &mtl).unwrap();
+            let new_material = Material::load(self.root_dir, &mtl).unwrap();
             self.storage.materials.push((mtl.name, new_material));
         }
 

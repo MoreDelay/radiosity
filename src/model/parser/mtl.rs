@@ -371,7 +371,7 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
                     if let Some(last_mtl) = current_mtl {
                         all_materials.push(last_mtl);
                     }
-                    let duplicate = all_materials.iter().any(|mtl| &mtl.name == &name);
+                    let duplicate = all_materials.iter().any(|mtl| mtl.name == name);
                     if duplicate {
                         let e = MtlSpecError::Duplicate(name);
                         return Err(map_spec_err(e));

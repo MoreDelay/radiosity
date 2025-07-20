@@ -215,6 +215,7 @@ impl PhongBindGroupLayout {
 }
 
 impl MaterialBindings {
+    #[expect(clippy::too_many_arguments)]
     pub fn new<P, T, N>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -509,6 +510,7 @@ impl ModelResourceStorage {
         InstanceBufferIndex { index }
     }
 
+    #[expect(clippy::too_many_arguments)]
     pub fn upload_material<P, T, N>(
         &mut self,
         device: &wgpu::Device,
