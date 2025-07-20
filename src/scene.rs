@@ -1,17 +1,20 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 
 use cgmath::{InnerSpace, Rotation3, Zero};
 use winit::window::Window;
 
 use crate::{camera, light, model, primitives, render};
 
+pub mod manager;
+
 pub struct SceneState {
-    render_state: render::SceneRenderState,
+    render_state: Rc<RefCell<render::RenderState>>,
     pipeline_mode: render::PipelineMode,
     use_first_person_camera: bool,
     last_time: std::time::Instant,
     #[expect(unused)]
-    model: model::Model,
+    model_storage: model::ModelStorage,
+    manager: manager::DrawManager,
     #[expect(unused)]
     instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,
@@ -32,16 +35,33 @@ impl SceneState {
 
         let position = [2., 2., 2.].into();
         let color = primitives::Color {
-            r: 255,
-            g: 255,
-            b: 255,
+            r: 1.,
+            g: 1.,
+            b: 1.,
         };
         let light = light::Light::new(position, color);
         let last_time = std::time::Instant::now();
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let model_path = root.join("resources/cube/cube.obj");
-        let model = model::Model::load(&model_path).unwrap();
+        let mut model_storage = model::ModelStorage::new();
+        let mesh_index = model_storage.load_mesh(&model_path).unwrap();
+
+        let render_state = Rc::new(RefCell::new(
+            render::RenderState::create(
+                render_init,
+                &target_camera,
+                &light,
+                // material,
+                // &model.mesh,
+                // &instances,
+                // color_texture,
+                // normal_texture,
+            )
+            .unwrap(),
+        ));
+
+        let mut manager = manager::DrawManager::new(Rc::clone(&render_state));
 
         const SPACE_BETWEEN: f32 = 3.0;
         let instances = (0..model::NUM_INSTANCES_PER_ROW)
@@ -64,30 +84,29 @@ impl SceneState {
             })
             .collect::<Vec<_>>();
 
-        let (color_texture, normal_texture) = match &model.material {
-            Some(mtl) => (mtl.color_texture.as_ref(), mtl.normal_texture.as_ref()),
-            None => (None, None),
-        };
+        let instance_index = render_state
+            .borrow_mut()
+            .add_instance_buffer(&instances, Some("Grid"));
 
-        let material = model
-            .material
-            .as_ref()
-            .unwrap()
-            .phong_params
-            .as_ref()
-            .unwrap();
+        manager.add_mesh(
+            &model_storage,
+            mesh_index,
+            Some(instance_index),
+            Some("Cube"),
+        );
 
-        let render_state = render::SceneRenderState::create(
-            render_init,
-            &target_camera,
-            &light,
-            material,
-            &model.mesh,
-            &instances,
-            color_texture,
-            normal_texture,
-        )
-        .unwrap();
+        // let (color_texture, normal_texture) = match &mesh.material {
+        //     Some(mtl) => (mtl.color_texture.as_ref(), mtl.normal_texture.as_ref()),
+        //     None => (None, None),
+        // };
+
+        // let material = model
+        //     .material
+        //     .as_ref()
+        //     .unwrap()
+        //     .phong_params
+        //     .as_ref()
+        //     .unwrap();
 
         let pipeline_mode = render::PipelineMode::Flat;
         let use_first_person_camera = false;
@@ -97,7 +116,8 @@ impl SceneState {
             render_state,
             use_first_person_camera,
             last_time,
-            model,
+            model_storage,
+            manager,
             instances,
             target_camera,
             first_person_camera,
@@ -112,14 +132,18 @@ impl SceneState {
                 self.target_camera.update_frame(frame_size);
                 self.first_person_camera.update_frame(frame_size);
                 if self.use_first_person_camera {
-                    self.render_state.update_camera(&self.first_person_camera);
+                    self.render_state
+                        .borrow_mut()
+                        .update_camera(&self.first_person_camera);
                 } else {
-                    self.render_state.update_camera(&self.target_camera);
+                    self.render_state
+                        .borrow_mut()
+                        .update_camera(&self.target_camera);
                 }
             }
         }
 
-        self.render_state.resize(new_size);
+        self.render_state.borrow_mut().resize(new_size);
     }
 
     pub fn step(&mut self) {
@@ -137,13 +161,15 @@ impl SceneState {
         self.last_time = std::time::Instant::now();
         let moved = self.light.step(epsilon);
         if moved {
-            self.render_state.update_light(&self.light);
+            self.render_state.borrow_mut().update_light(&self.light);
         }
 
         if self.use_first_person_camera {
             let moved = self.first_person_camera.step(epsilon);
             if moved {
-                self.render_state.update_camera(&self.first_person_camera);
+                self.render_state
+                    .borrow_mut()
+                    .update_camera(&self.first_person_camera);
             }
         }
     }
@@ -151,10 +177,14 @@ impl SceneState {
     pub fn drag_camera(&mut self, movement: cgmath::Vector2<f32>) {
         if self.use_first_person_camera {
             self.first_person_camera.rotate(movement);
-            self.render_state.update_camera(&self.first_person_camera);
+            self.render_state
+                .borrow_mut()
+                .update_camera(&self.first_person_camera);
         } else {
             self.target_camera.rotate(movement);
-            self.render_state.update_camera(&self.target_camera);
+            self.render_state
+                .borrow_mut()
+                .update_camera(&self.target_camera);
         }
     }
 
@@ -163,7 +193,9 @@ impl SceneState {
             return;
         }
         self.target_camera.go_near();
-        self.render_state.update_camera(&self.target_camera);
+        self.render_state
+            .borrow_mut()
+            .update_camera(&self.target_camera);
     }
 
     pub fn go_away(&mut self) {
@@ -171,7 +203,9 @@ impl SceneState {
             return;
         }
         self.target_camera.go_away();
-        self.render_state.update_camera(&self.target_camera);
+        self.render_state
+            .borrow_mut()
+            .update_camera(&self.target_camera);
     }
 
     pub fn set_movement(&mut self, dir: camera::DirectionKey, active: bool) {
@@ -179,7 +213,10 @@ impl SceneState {
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
-        self.render_state.draw(self.pipeline_mode)
+        // self.render_state.draw(self.pipeline_mode)
+        self.render_state
+            .borrow_mut()
+            .draw(self.manager.draw_iter(), None)
     }
 
     /// returns true if paused after toggling
@@ -202,9 +239,13 @@ impl SceneState {
     pub fn toggle_camera(&mut self) -> bool {
         self.use_first_person_camera ^= true;
         if self.use_first_person_camera {
-            self.render_state.update_camera(&self.first_person_camera);
+            self.render_state
+                .borrow_mut()
+                .update_camera(&self.first_person_camera);
         } else {
-            self.render_state.update_camera(&self.target_camera);
+            self.render_state
+                .borrow_mut()
+                .update_camera(&self.target_camera);
         }
         self.use_first_person_camera
     }

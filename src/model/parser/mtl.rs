@@ -34,6 +34,8 @@ pub enum MtlError {
 pub enum MtlSpecError {
     #[error("Specified a field twice")]
     DoubleField,
+    #[error("Got the same name for a material twice: {0}")]
+    Duplicate(String),
     #[error("Setting property before any 'newmtl'")]
     MissingNewmtl,
     #[error("A color value must be between 0 and 1, got {0}")]
@@ -331,7 +333,7 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
     let mut buffer = String::new();
     let mut reader = BufReader::new(file);
 
-    let mut all_materials = Vec::new();
+    let mut all_materials: Vec<ParsedMtl> = Vec::new();
     let mut current_mtl = None;
 
     let mut line_index = 0;
@@ -368,6 +370,11 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
                 MtlLine::Newmtl(MtlNewmtl(name)) => {
                     if let Some(last_mtl) = current_mtl {
                         all_materials.push(last_mtl);
+                    }
+                    let duplicate = all_materials.iter().any(|mtl| &mtl.name == &name);
+                    if duplicate {
+                        let e = MtlSpecError::Duplicate(name);
+                        return Err(map_spec_err(e));
                     }
                     current_mtl = Some(ParsedMtl::new(name))
                 }

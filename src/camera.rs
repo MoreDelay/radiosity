@@ -1,6 +1,6 @@
 use cgmath::{ElementWise, EuclideanSpace, InnerSpace, Rotation, Rotation2, Rotation3};
 
-use crate::render::layout::{CameraRaw, GpuTransfer};
+use crate::render::{CameraRaw, GpuTransfer};
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDim(pub u32, pub u32);

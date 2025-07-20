@@ -2,10 +2,70 @@ use std::ops::Deref;
 
 use super::{layout, resource};
 
-pub struct FlatScenePipeline(pub wgpu::RenderPipeline);
-pub struct NormalScenePipeline(pub wgpu::RenderPipeline);
-pub struct ColorScenePipeline(pub wgpu::RenderPipeline);
-pub struct LightPipeline(pub wgpu::RenderPipeline);
+pub struct FlatScenePipeline(wgpu::RenderPipeline);
+pub struct NormalScenePipeline(wgpu::RenderPipeline);
+pub struct ColorScenePipeline(wgpu::RenderPipeline);
+pub struct LightPipeline(wgpu::RenderPipeline);
+
+pub struct TexturePipelines {
+    flat: FlatScenePipeline,
+    color: ColorScenePipeline,
+    normal: NormalScenePipeline,
+}
+
+impl TexturePipelines {
+    pub fn new(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        texture_layouts: &resource::TextureBindGroupLayouts,
+        camera_layout: &resource::CameraBindGroupLayout,
+        light_layout: &resource::LightBindGroupLayout,
+        phong_layout: &resource::PhongBindGroupLayout,
+    ) -> anyhow::Result<Self> {
+        let flat = FlatScenePipeline::new(
+            device,
+            color_format,
+            texture_layouts.get_flat(),
+            camera_layout,
+            light_layout,
+            phong_layout,
+        )?;
+        let color = ColorScenePipeline::new(
+            device,
+            color_format,
+            texture_layouts.get_color(),
+            camera_layout,
+            light_layout,
+            phong_layout,
+        )?;
+        let normal = NormalScenePipeline::new(
+            device,
+            color_format,
+            texture_layouts.get_normal(),
+            camera_layout,
+            light_layout,
+            phong_layout,
+        )?;
+
+        Ok(Self {
+            flat,
+            color,
+            normal,
+        })
+    }
+
+    pub fn get_flat(&self) -> &FlatScenePipeline {
+        &self.flat
+    }
+
+    pub fn get_color(&self) -> &ColorScenePipeline {
+        &self.color
+    }
+
+    pub fn get_normal(&self) -> &NormalScenePipeline {
+        &self.normal
+    }
+}
 
 impl FlatScenePipeline {
     const SHADER: &str = include_str!(concat!(
@@ -13,29 +73,27 @@ impl FlatScenePipeline {
         "/src/shaders/model_none.wgsl"
     ));
 
-    pub fn new<L>(
+    pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layout: &L,
+        texture_layout: &wgpu::BindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
-    ) -> anyhow::Result<Self>
-    where
-        L: Deref<Target = wgpu::BindGroupLayout>,
-    {
+    ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some("FlatPipelineLayout"),
             bind_group_layouts: &[
                 &camera_layout.0,
                 &light_layout.0,
                 &phong_layout.0,
+                // TODO: find out why it crashes when this is uncommented
                 texture_layout,
             ],
             push_constant_ranges: &[],
         });
         let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("Scene Shader"),
+            label: Some("FlatShader"),
             source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
         };
         let pipeline = create_render_pipeline(
@@ -45,6 +103,7 @@ impl FlatScenePipeline {
             Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
+            Some("FlatPipeline"),
         );
         Ok(Self(pipeline))
     }
@@ -56,19 +115,16 @@ impl NormalScenePipeline {
         "/src/shaders/model_cn.wgsl"
     ));
 
-    pub fn new<L>(
+    pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layout: &L,
+        texture_layout: &resource::NormalTextureBindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
-    ) -> anyhow::Result<Self>
-    where
-        L: Deref<Target = wgpu::BindGroupLayout> + resource::HasColor + resource::HasNormal,
-    {
+    ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some("NormalPipelineLayout"),
             bind_group_layouts: &[
                 &camera_layout.0,
                 &light_layout.0,
@@ -78,7 +134,7 @@ impl NormalScenePipeline {
             push_constant_ranges: &[],
         });
         let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("Scene Shader"),
+            label: Some("NormalShader"),
             source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
         };
         let pipeline = create_render_pipeline(
@@ -88,6 +144,7 @@ impl NormalScenePipeline {
             Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
+            Some("NormalPipeline"),
         );
         Ok(Self(pipeline))
     }
@@ -99,19 +156,16 @@ impl ColorScenePipeline {
         "/src/shaders/model_c.wgsl"
     ));
 
-    pub fn new<L>(
+    pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layout: &L,
+        texture_layout: &resource::ColorTextureBindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
-    ) -> anyhow::Result<Self>
-    where
-        L: Deref<Target = wgpu::BindGroupLayout> + resource::HasColor,
-    {
+    ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some("ColorPipelineLayout"),
             bind_group_layouts: &[
                 &camera_layout.0,
                 &light_layout.0,
@@ -121,7 +175,7 @@ impl ColorScenePipeline {
             push_constant_ranges: &[],
         });
         let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("Simple Scene Shader"),
+            label: Some("ColorShader"),
             source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
         };
         let pipeline = create_render_pipeline(
@@ -131,6 +185,7 @@ impl ColorScenePipeline {
             Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
+            Some("ColorPipeline"),
         );
         Ok(Self(pipeline))
     }
@@ -149,7 +204,7 @@ impl LightPipeline {
         light_layout: &resource::LightBindGroupLayout,
     ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
+            label: Some("Light Pipeline Layout"),
             bind_group_layouts: &[&camera_layout.0, &light_layout.0],
             push_constant_ranges: &[],
         });
@@ -164,6 +219,7 @@ impl LightPipeline {
             Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
+            Some("Light Pipeline"),
         );
         Ok(Self(pipeline))
     }
@@ -176,11 +232,12 @@ fn create_render_pipeline(
     depth_format: Option<wgpu::TextureFormat>,
     vertex_layout: &[wgpu::VertexBufferLayout],
     shader: wgpu::ShaderModuleDescriptor,
+    label: Option<&str>,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(shader);
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Render Pipeline"),
+        label,
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
@@ -225,4 +282,36 @@ fn create_render_pipeline(
         multiview: None,
         cache: None,
     })
+}
+
+impl Deref for FlatScenePipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for ColorScenePipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for NormalScenePipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for LightPipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }

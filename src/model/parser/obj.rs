@@ -441,7 +441,9 @@ pub fn load_obj(
                 ObjLine::VertexNormal(obj_vn) => normals.push(obj_vn),
                 ObjLine::FaceIndex(obj_f) => faces.push(obj_f.map_err(map_spec_err)?),
                 ObjLine::MtlLib(ObjMtllib { name }) => {
-                    let found_names = mtl_manager.request_load(&name).map_err(ObjError::FromMtl)?;
+                    let found_names = mtl_manager
+                        .request_mtl_load(&name)
+                        .map_err(ObjError::FromMtl)?;
                     material_names.extend(found_names);
                 }
                 ObjLine::UseMtl(ObjUsemtl { name }) => {
@@ -449,7 +451,9 @@ pub fn load_obj(
                     if !valid_name {
                         return Err(ObjError::WrongFormat(path.to_path_buf(), line_index));
                     }
-                    let material_index = mtl_manager.request_index(&name);
+                    let material_index = mtl_manager
+                        .request_mtl_index(&name)
+                        .expect("we must have stored this material in the manager before");
 
                     let first_face = faces.len(); // the next face that gets pushes
                     material_switches.push(ObjMaterialSwitch {

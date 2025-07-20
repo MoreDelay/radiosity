@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::{ops::Deref, path::Path};
 
 use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
@@ -6,24 +6,31 @@ use image::ImageReader;
 use crate::{
     model::parser::{mtl, obj},
     primitives::{Color, Vertex},
-    render::layout::{
-        GpuTransfer, GpuTransferRef, InstanceBufferRaw, InstanceRaw, PhongRaw, TextureRaw,
-        TriangleBufferRaw,
-    },
+    render,
 };
 
 pub mod parser;
 
 pub const NUM_INSTANCES_PER_ROW: u32 = 10;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MeshIndex {
+    index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MaterialIndex {
+    index: usize,
+}
+
 pub struct ModelStorage {
-    current_root: Option<PathBuf>,
-    meshes: Vec<Mesh>,
-    materials: Vec<Material>,
-    name_to_mesh: Vec<(String, usize)>,
-    name_to_mtl: Vec<(String, usize)>,
-    map_mtl_to_mesh: Vec<Vec<usize>>,
-    meshes_without_mtl: Vec<usize>,
+    meshes: Vec<(String, Mesh)>,
+    materials: Vec<(String, Material)>,
+}
+
+struct ModelStorageInserter<'a> {
+    root_dir: &'a Path,
+    storage: &'a mut ModelStorage,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -41,11 +48,6 @@ pub struct ColorTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 #[derive(Clone, Debug)]
 pub struct NormalTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
-pub struct Model {
-    pub mesh: Mesh,
-    pub material: Option<Material>,
-}
-
 #[derive(Clone, Debug)]
 pub struct PhongParameters {
     pub ambient_color: Color,
@@ -57,85 +59,93 @@ pub struct PhongParameters {
 pub struct Material {
     #[expect(unused)]
     pub name: String,
-    pub phong_params: Option<PhongParameters>,
+    pub phong_params: PhongParameters,
     pub color_texture: Option<ColorTexture>,
     pub normal_texture: Option<NormalTexture>,
+}
+
+pub struct MaterialSwitch {
+    pub first_face: usize,
+    pub material: MaterialIndex,
 }
 
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<Triplet>,
-    pub material_id: Option<usize>,
+    pub material_switches: Vec<MaterialSwitch>,
 }
 
 impl ModelStorage {
-    #[expect(unused)]
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            current_root: None,
             meshes: Vec::new(),
             materials: Vec::new(),
-            name_to_mesh: Vec::new(),
-            name_to_mtl: Vec::new(),
-            map_mtl_to_mesh: Vec::new(),
-            meshes_without_mtl: Vec::new(),
         }
     }
 
-    #[expect(unused)]
-    fn load_mesh(&mut self, path: &Path) -> anyhow::Result<()> {
+    pub fn get_mesh(&self, MeshIndex { index }: MeshIndex) -> &Mesh {
+        let (_, mesh) = &self.meshes[index];
+        mesh
+    }
+
+    pub fn get_material(&self, MaterialIndex { index }: MaterialIndex) -> &Material {
+        let (_, material) = &self.materials[index];
+        material
+    }
+
+    pub fn load_mesh(&mut self, path: &Path) -> anyhow::Result<MeshIndex> {
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let already_loaded = self.name_to_mesh.iter().any(|(n, _)| n == &name);
-        if already_loaded {
-            return Ok(());
+        let already_loaded = self
+            .meshes
+            .iter()
+            .enumerate()
+            .find_map(|(i, (n, _))| (n == &name).then_some(i));
+        if let Some(index) = already_loaded {
+            return Ok(MeshIndex { index });
         }
 
-        let root = path.parent().unwrap().to_path_buf();
-        self.current_root = Some(root);
+        let mut inserter = ModelStorageInserter {
+            root_dir: path.parent().expect("file should have a parent directory"),
+            storage: self,
+        };
 
-        let loaded_obj = obj::load_obj(path, self)?;
+        let loaded_obj = obj::load_obj(path, &mut inserter)?;
         let mesh = Mesh::new(loaded_obj);
 
-        let next_index = self.meshes.len();
-        match mesh.material_id {
-            Some(index) => self.map_mtl_to_mesh[index].push(next_index),
-            None => self.meshes_without_mtl.push(next_index),
-        }
+        let mesh_index = self.meshes.len();
 
-        self.name_to_mesh.push((name, next_index));
-        self.meshes.push(mesh);
-        Ok(())
+        self.meshes.push((name, mesh));
+        Ok(MeshIndex { index: mesh_index })
     }
 }
 
-impl parser::MtlManager for ModelStorage {
-    fn request_load(&mut self, name: &str) -> Result<Vec<String>, parser::mtl::MtlError> {
-        let root = self.current_root.as_ref().unwrap();
-        let path = root.join(name);
+impl<'a> parser::MtlManager for ModelStorageInserter<'a> {
+    fn request_mtl_load(&mut self, filename: &str) -> Result<Vec<String>, parser::mtl::MtlError> {
+        let path = self.root_dir.join(filename);
         let loaded_mtls = parser::mtl::parse_mtl(&path)?;
         let mut mtls_in_this_lib = Vec::new();
 
         for mtl in loaded_mtls {
+            assert!(!mtls_in_this_lib.contains(&mtl.name), "duplicate material");
             mtls_in_this_lib.push(mtl.name.clone());
 
-            let already_loaded = self.name_to_mtl.iter().any(|(n, _)| n == &mtl.name);
+            let already_loaded = self.storage.materials.iter().any(|(n, _)| n == &mtl.name);
             if already_loaded {
                 continue;
             }
-            let next_index = self.materials.len();
-            self.name_to_mtl.push((mtl.name.clone(), next_index));
-            let new_material = Material::load(root, &mtl).unwrap();
-            self.materials.push(new_material);
+            let new_material = Material::load(&self.root_dir, &mtl).unwrap();
+            self.storage.materials.push((mtl.name, new_material));
         }
 
         Ok(mtls_in_this_lib)
     }
 
-    fn request_index(&self, name: &str) -> usize {
-        self.name_to_mtl
+    fn request_mtl_index(&self, name: &str) -> Option<usize> {
+        self.storage
+            .materials
             .iter()
-            .find_map(|(n, i)| if n == name { Some(*i) } else { None })
-            .unwrap()
+            .enumerate()
+            .find_map(|(index, (mesh_name, _))| if mesh_name == name { Some(index) } else { None })
     }
 }
 
@@ -158,23 +168,29 @@ impl Material {
             }
         };
 
-        let white = Color {
-            r: 255,
-            g: 255,
-            b: 255,
-        };
+        let ambient_color = mtl
+            .ka
+            .map(|c| c.into())
+            .unwrap_or(mtl::MtlKa::default().into());
+        let diffuse_color = mtl
+            .kd
+            .map(|c| c.into())
+            .unwrap_or(mtl::MtlKd::default().into());
+        let specular_color = mtl
+            .ks
+            .map(|c| c.into())
+            .unwrap_or(mtl::MtlKs::default().into());
+        let specular_exponent = mtl
+            .ns
+            .map(|mtl::MtlNs(exponent)| exponent)
+            .unwrap_or(mtl::MtlNs::default().0);
 
-        let ambient_color = mtl.ka.map(|c| c.into()).unwrap_or(white);
-        let diffuse_color = mtl.kd.map(|c| c.into()).unwrap_or(white);
-        let specular_color = mtl.ks.map(|c| c.into()).unwrap_or(white);
-        let specular_exponent = mtl.ns.map(|mtl::MtlNs(exponent)| exponent).unwrap_or(10.);
-
-        let phong_params = Some(PhongParameters {
+        let phong_params = PhongParameters {
             ambient_color,
             diffuse_color,
             specular_color,
             specular_exponent,
-        });
+        };
 
         Ok(Self {
             name: mtl.name.to_string(),
@@ -182,22 +198,6 @@ impl Material {
             color_texture,
             normal_texture,
         })
-    }
-}
-
-impl Model {
-    pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let abs_dir = path.canonicalize().unwrap().parent().unwrap().to_path_buf();
-        let mut mtl_manager = parser::SimpleMtlManager::new(abs_dir.clone());
-
-        let parsed_obj = parser::obj::load_obj(path, &mut mtl_manager)?;
-
-        let mesh = Mesh::new(parsed_obj);
-        let material = match mesh.material_id {
-            Some(index) => Some(Material::load(&abs_dir, mtl_manager.get(index))?),
-            _ => None,
-        };
-        Ok(Self { mesh, material })
     }
 }
 
@@ -304,19 +304,37 @@ impl Mesh {
             })
             .collect::<Vec<_>>();
 
-        // TODO: currently switching materials not supported as we drop all switches
-        let material_id = material_switches.first().map(|v| v.material_index);
-
+        // TODO: need to adapt first face for materials after triangulation
+        let material_switches = material_switches
+            .into_iter()
+            .map(|switch| MaterialSwitch {
+                first_face: switch.first_face,
+                material: MaterialIndex {
+                    index: switch.material_index,
+                },
+            })
+            .collect();
         Self {
             vertices,
             triangles,
-            material_id,
+            material_switches,
         }
     }
 }
 
-impl GpuTransfer for Mesh {
-    type Raw = TriangleBufferRaw;
+impl Default for PhongParameters {
+    fn default() -> Self {
+        Self {
+            ambient_color: Color::from(mtl::MtlKa::default()),
+            diffuse_color: Color::from(mtl::MtlKd::default()),
+            specular_color: Color::from(mtl::MtlKs::default()),
+            specular_exponent: mtl::MtlNs::default().0,
+        }
+    }
+}
+
+impl render::GpuTransfer for Mesh {
+    type Raw = render::TriangleBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
         assert!(self.vertices.len() <= <u32>::MAX as usize);
@@ -332,23 +350,23 @@ impl GpuTransfer for Mesh {
             })
             .collect();
         let vertices = self.vertices.iter().map(|v| v.to_raw()).collect();
-        TriangleBufferRaw { vertices, indices }
+        render::TriangleBufferRaw { vertices, indices }
     }
 }
 
-impl GpuTransfer for Vec<Instance> {
-    type Raw = InstanceBufferRaw;
+impl render::GpuTransfer for &[Instance] {
+    type Raw = render::InstanceBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
         let instances = self.iter().map(|i| i.to_raw()).collect();
-        InstanceBufferRaw { instances }
+        render::InstanceBufferRaw { instances }
     }
 }
 
-impl<'a> GpuTransferRef<'a> for ColorTexture {
-    type Raw = TextureRaw<'a>;
+impl<'a> render::GpuTransferRef<'a> for ColorTexture {
+    type Raw = render::TextureRaw<'a>;
 
-    fn to_raw(&'a self) -> TextureRaw<'a> {
+    fn to_raw(&'a self) -> render::TextureRaw<'a> {
         let Self(image) = self;
         let data = &image;
         let dimensions = image.dimensions();
@@ -358,14 +376,14 @@ impl<'a> GpuTransferRef<'a> for ColorTexture {
             depth_or_array_layers: 1,
         };
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        TextureRaw { data, format, size }
+        render::TextureRaw { data, format, size }
     }
 }
 
-impl<'a> GpuTransferRef<'a> for NormalTexture {
-    type Raw = TextureRaw<'a>;
+impl<'a> render::GpuTransferRef<'a> for NormalTexture {
+    type Raw = render::TextureRaw<'a>;
 
-    fn to_raw(&'a self) -> TextureRaw<'a> {
+    fn to_raw(&'a self) -> render::TextureRaw<'a> {
         let Self(image) = self;
         let data = &image;
         let dimensions = image.dimensions();
@@ -375,18 +393,18 @@ impl<'a> GpuTransferRef<'a> for NormalTexture {
             depth_or_array_layers: 1,
         };
         let format = wgpu::TextureFormat::Rgba8Unorm;
-        TextureRaw { data, format, size }
+        render::TextureRaw { data, format, size }
     }
 }
 
-impl GpuTransfer for Instance {
-    type Raw = InstanceRaw;
+impl render::GpuTransfer for Instance {
+    type Raw = render::InstanceRaw;
     fn to_raw(&self) -> Self::Raw {
         let model = (cgmath::Matrix4::from_translation(self.position)
             * cgmath::Matrix4::from(self.rotation))
         .into();
         let normal = cgmath::Matrix3::from(self.rotation).into();
-        InstanceRaw { model, normal }
+        render::InstanceRaw { model, normal }
     }
 }
 
@@ -396,11 +414,11 @@ impl From<Triplet> for (u32, u32, u32) {
     }
 }
 
-impl GpuTransfer for PhongParameters {
-    type Raw = PhongRaw;
+impl render::GpuTransfer for PhongParameters {
+    type Raw = render::PhongRaw;
 
     fn to_raw(&self) -> Self::Raw {
-        PhongRaw {
+        render::PhongRaw {
             specular_color: self.specular_color.into(),
             specular_exponent: self.specular_exponent,
             diffuse_color: self.diffuse_color.into(),
@@ -408,5 +426,21 @@ impl GpuTransfer for PhongParameters {
             ambient_color: self.ambient_color.into(),
             _padding2: 0,
         }
+    }
+}
+
+impl Deref for MeshIndex {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.index
+    }
+}
+
+impl Deref for MaterialIndex {
+    type Target = usize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.index
     }
 }

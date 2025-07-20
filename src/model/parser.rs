@@ -11,11 +11,11 @@ pub mod obj;
 pub trait MtlManager {
     /// Request to load the provided MTL library. The argument is just the provided name within the
     /// file which typically is concatenated with the parent directory of the original obj file.
-    fn request_load(&mut self, name: &str) -> Result<Vec<String>, mtl::MtlError>;
+    fn request_mtl_load(&mut self, name: &str) -> Result<Vec<String>, mtl::MtlError>;
 
     /// Given the name of a material, this call should return the index to the material that
     /// uniquely identifies the corresponding material for this manager.
-    fn request_index(&self, name: &str) -> usize;
+    fn request_mtl_index(&self, name: &str) -> Option<usize>;
 }
 
 pub struct SimpleMtlManager {
@@ -24,6 +24,7 @@ pub struct SimpleMtlManager {
     names: Vec<String>,
 }
 
+#[expect(unused)]
 impl SimpleMtlManager {
     pub fn new(root_dir: PathBuf) -> Self {
         Self {
@@ -33,18 +34,17 @@ impl SimpleMtlManager {
         }
     }
 
-    #[expect(unused)]
     pub fn len(&self) -> usize {
         self.materials.len()
     }
 
-    pub fn get(&self, index: usize) -> &mtl::ParsedMtl {
-        &self.materials[index]
+    pub fn get(&self, index: usize) -> Option<&mtl::ParsedMtl> {
+        self.materials.get(index)
     }
 }
 
 impl MtlManager for SimpleMtlManager {
-    fn request_load(&mut self, name: &str) -> Result<Vec<String>, mtl::MtlError> {
+    fn request_mtl_load(&mut self, name: &str) -> Result<Vec<String>, mtl::MtlError> {
         let path = self.root_dir.join(name);
         let loaded_mtls = mtl::parse_mtl(&path)?;
         let mut mtls_in_this_lib = Vec::new();
@@ -63,12 +63,11 @@ impl MtlManager for SimpleMtlManager {
         Ok(mtls_in_this_lib)
     }
 
-    fn request_index(&self, name: &str) -> usize {
+    fn request_mtl_index(&self, name: &str) -> Option<usize> {
         self.names
             .iter()
             .enumerate()
             .find_map(|(i, n)| if n == name { Some(i) } else { None })
-            .unwrap()
     }
 }
 

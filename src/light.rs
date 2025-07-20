@@ -2,7 +2,7 @@ use cgmath::{EuclideanSpace, Rotation3};
 
 use crate::{
     primitives,
-    render::layout::{GpuTransfer, LightRaw},
+    render::{GpuTransfer, LightRaw},
 };
 
 #[derive(Debug, Copy, Clone)]

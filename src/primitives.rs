@@ -1,6 +1,6 @@
 use crate::{
     model::parser::mtl,
-    render::layout::{GpuTransfer, VertexRaw},
+    render::{GpuTransfer, VertexRaw},
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -14,9 +14,9 @@ pub struct Vertex {
 
 #[derive(Debug, Copy, Clone)]
 pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
 }
 
 impl GpuTransfer for Vertex {
@@ -35,33 +35,24 @@ impl GpuTransfer for Vertex {
 impl From<Color> for [f32; 3] {
     fn from(val: Color) -> Self {
         let Color { r, g, b, .. } = val;
-        [r as f32 / 255., g as f32 / 255., b as f32 / 255.]
+        [r, g, b]
     }
 }
 
 impl From<mtl::MtlKa> for Color {
     fn from(mtl::MtlKa(r, g, b): mtl::MtlKa) -> Self {
-        let r = (r * 255.) as u8;
-        let g = (g * 255.) as u8;
-        let b = (b * 255.) as u8;
         Color { r, g, b }
     }
 }
 
 impl From<mtl::MtlKd> for Color {
     fn from(mtl::MtlKd(r, g, b): mtl::MtlKd) -> Self {
-        let r = (r * 255.) as u8;
-        let g = (g * 255.) as u8;
-        let b = (b * 255.) as u8;
         Color { r, g, b }
     }
 }
 
 impl From<mtl::MtlKs> for Color {
     fn from(mtl::MtlKs(r, g, b): mtl::MtlKs) -> Self {
-        let r = (r * 255.) as u8;
-        let g = (g * 255.) as u8;
-        let b = (b * 255.) as u8;
         Color { r, g, b }
     }
 }
