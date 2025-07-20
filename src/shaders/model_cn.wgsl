@@ -50,9 +50,9 @@ var<uniform> light: Light;
 var t_diffuse: texture_2d<f32>;
 @group(3) @binding(1)
 var s_diffuse: sampler;
-@group(3) @binding(2)
+@group(4) @binding(0)
 var t_normal: texture_2d<f32>;
-@group(3) @binding(3)
+@group(4) @binding(1)
 var s_normal: sampler;
 
 @vertex

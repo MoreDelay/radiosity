@@ -17,7 +17,7 @@ impl TexturePipelines {
     pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layouts: &resource::TextureBindGroupLayouts,
+        texture_layout: &resource::TextureBindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
@@ -25,7 +25,6 @@ impl TexturePipelines {
         let flat = FlatScenePipeline::new(
             device,
             color_format,
-            texture_layouts.get_flat(),
             camera_layout,
             light_layout,
             phong_layout,
@@ -33,7 +32,7 @@ impl TexturePipelines {
         let color = ColorScenePipeline::new(
             device,
             color_format,
-            texture_layouts.get_color(),
+            texture_layout,
             camera_layout,
             light_layout,
             phong_layout,
@@ -41,7 +40,7 @@ impl TexturePipelines {
         let normal = NormalScenePipeline::new(
             device,
             color_format,
-            texture_layouts.get_normal(),
+            texture_layout,
             camera_layout,
             light_layout,
             phong_layout,
@@ -76,20 +75,13 @@ impl FlatScenePipeline {
     pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layout: &wgpu::BindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
     ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("FlatPipelineLayout"),
-            bind_group_layouts: &[
-                &camera_layout.0,
-                &light_layout.0,
-                &phong_layout.0,
-                // TODO: find out why it crashes when this is uncommented
-                texture_layout,
-            ],
+            bind_group_layouts: &[&camera_layout.0, &light_layout.0, &phong_layout.0],
             push_constant_ranges: &[],
         });
         let shader = wgpu::ShaderModuleDescriptor {
@@ -118,7 +110,7 @@ impl NormalScenePipeline {
     pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layout: &resource::NormalTextureBindGroupLayout,
+        texture_layout: &resource::TextureBindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
@@ -129,7 +121,8 @@ impl NormalScenePipeline {
                 &camera_layout.0,
                 &light_layout.0,
                 &phong_layout.0,
-                texture_layout,
+                texture_layout, // color texture
+                texture_layout, // normal texture
             ],
             push_constant_ranges: &[],
         });
@@ -159,7 +152,7 @@ impl ColorScenePipeline {
     pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
-        texture_layout: &resource::ColorTextureBindGroupLayout,
+        texture_layout: &resource::TextureBindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,

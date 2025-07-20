@@ -9,15 +9,7 @@ use super::{
     CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, TriangleBufferRaw,
 };
 
-pub struct FlatTextureBindGroupLayout(wgpu::BindGroupLayout);
-pub struct ColorTextureBindGroupLayout(wgpu::BindGroupLayout);
-pub struct NormalTextureBindGroupLayout(wgpu::BindGroupLayout);
-
-pub struct TextureBindGroupLayouts {
-    flat: FlatTextureBindGroupLayout,
-    color: ColorTextureBindGroupLayout,
-    normal: NormalTextureBindGroupLayout,
-}
+pub struct TextureBindGroupLayout(wgpu::BindGroupLayout);
 
 pub struct CameraBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct LightBindGroupLayout(pub wgpu::BindGroupLayout);
@@ -30,13 +22,10 @@ pub struct Texture {
     pub sampler: wgpu::Sampler,
 }
 
-pub struct MaterialBinding {
-    pub texture_bind_group: wgpu::BindGroup,
+pub struct MaterialBindings {
     pub phong_binding: PhongBinding,
-    #[expect(unused)]
-    pub color: Option<Texture>,
-    #[expect(unused)]
-    pub normal: Option<Texture>,
+    pub color: Option<(wgpu::BindGroup, Texture)>,
+    pub normal: Option<(wgpu::BindGroup, Texture)>,
 }
 pub struct CameraBinding {
     pub bind_group: wgpu::BindGroup,
@@ -80,7 +69,7 @@ pub struct MaterialBindingIndex {
 pub struct ModelResourceStorage {
     mesh_buffers: Vec<MeshBuffer>,
     instance_buffers: Vec<InstanceBuffer>,
-    material_bindings: Vec<MaterialBinding>,
+    material_bindings: Vec<MaterialBindings>,
 }
 
 impl Texture {
@@ -133,54 +122,7 @@ impl Texture {
     }
 }
 
-impl Deref for FlatTextureBindGroupLayout {
-    type Target = wgpu::BindGroupLayout;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl Deref for ColorTextureBindGroupLayout {
-    type Target = wgpu::BindGroupLayout;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-impl Deref for NormalTextureBindGroupLayout {
-    type Target = wgpu::BindGroupLayout;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl TextureBindGroupLayouts {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let flat = FlatTextureBindGroupLayout::new(device);
-        let color = ColorTextureBindGroupLayout::new(device);
-        let normal = NormalTextureBindGroupLayout::new(device);
-        Self {
-            flat,
-            color,
-            normal,
-        }
-    }
-
-    pub fn get_flat(&self) -> &FlatTextureBindGroupLayout {
-        &self.flat
-    }
-
-    pub fn get_color(&self) -> &ColorTextureBindGroupLayout {
-        &self.color
-    }
-
-    pub fn get_normal(&self) -> &NormalTextureBindGroupLayout {
-        &self.normal
-    }
-}
-
-impl NormalTextureBindGroupLayout {
+impl TextureBindGroupLayout {
     pub fn new(device: &wgpu::Device) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("NormalTextureBindGroupLayout"),
@@ -201,62 +143,17 @@ impl NormalTextureBindGroupLayout {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
             ],
         });
         Self(layout)
     }
 }
 
-impl ColorTextureBindGroupLayout {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("ColorTextureBindGroupLayout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        Self(layout)
-    }
-}
+impl Deref for TextureBindGroupLayout {
+    type Target = wgpu::BindGroupLayout;
 
-impl FlatTextureBindGroupLayout {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("FlatTextureBindGroupLayout"),
-            entries: &[],
-        });
-        Self(layout)
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -317,12 +214,12 @@ impl PhongBindGroupLayout {
     }
 }
 
-impl MaterialBinding {
+impl MaterialBindings {
     pub fn new<P, T, N>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         phong_layout: &PhongBindGroupLayout,
-        texture_layouts: &TextureBindGroupLayouts,
+        texture_layout: &TextureBindGroupLayout,
         phong: &P,
         color_texture: Option<&T>,
         normal_texture: Option<&N>,
@@ -333,61 +230,53 @@ impl MaterialBinding {
         T: GpuTransferTexture,
         N: GpuTransferTexture,
     {
-        let color_label = label.map(|s| format!("{s}-ColorTexture"));
-        let color = color_texture.map(|t| t.create_texture(device, queue, color_label.as_deref()));
-        let color_entries = color.as_ref().map(|t| {
-            [
+        let color = color_texture.map(|t| {
+            let texture_label = label.map(|s| format!("{s}-ColorTexture"));
+            let texture = t.create_texture(device, queue, texture_label.as_deref());
+            let entries = [
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&t.view),
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&t.sampler),
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
                 },
-            ]
+            ];
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label,
+                layout: texture_layout.deref(),
+                entries: &entries,
+            });
+            (bind_group, texture)
         });
 
-        let normal_label = label.map(|s| format!("{s}-NormalTexture"));
-        let normal =
-            normal_texture.map(|t| t.create_texture(device, queue, normal_label.as_deref()));
-        let normal_entries = normal.as_ref().map(|t| {
-            [
+        let normal = normal_texture.map(|t| {
+            let texture_label = label.map(|s| format!("{s}-NormalTexture"));
+            let texture = t.create_texture(device, queue, texture_label.as_deref());
+            let entries = [
                 wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&t.view),
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
                 },
                 wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&t.sampler),
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
                 },
-            ]
-        });
-
-        let entries: Vec<_> = [color_entries, normal_entries]
-            .into_iter()
-            .flatten() // filter missing materials
-            .flatten() // flatten [view, sampler] slices to single level
-            .collect();
-
-        let layout = match (color_texture, normal_texture) {
-            (None, None) => texture_layouts.get_flat().deref(),
-            (None, Some(_)) => unreachable!(),
-            (Some(_), None) => texture_layouts.get_color().deref(),
-            (Some(_), Some(_)) => texture_layouts.get_normal().deref(),
-        };
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label,
-            layout,
-            entries: &entries,
+            ];
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label,
+                layout: texture_layout.deref(),
+                entries: &entries,
+            });
+            (bind_group, texture)
         });
 
         let phong_label = label.map(|s| format!("{s}-PhongTexture"));
         let phong_binding = PhongBinding::new(device, phong_layout, phong, phong_label.as_deref());
 
         Self {
-            texture_bind_group: bind_group,
-            phong_binding: phong_binding,
+            phong_binding,
             color,
             normal,
         }
@@ -586,7 +475,7 @@ impl ModelResourceStorage {
         &self.instance_buffers[index]
     }
 
-    pub fn get_material_binding(&self, index: MaterialBindingIndex) -> &MaterialBinding {
+    pub fn get_material_binding(&self, index: MaterialBindingIndex) -> &MaterialBindings {
         let MaterialBindingIndex { index } = index;
         &self.material_bindings[index]
     }
@@ -625,7 +514,7 @@ impl ModelResourceStorage {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         phong_layout: &PhongBindGroupLayout,
-        texture_layouts: &TextureBindGroupLayouts,
+        texture_layout: &TextureBindGroupLayout,
         phong: &P,
         color_texture: Option<&T>,
         normal_texture: Option<&N>,
@@ -637,11 +526,11 @@ impl ModelResourceStorage {
         N: GpuTransferTexture,
     {
         let index = self.material_bindings.len();
-        self.material_bindings.push(MaterialBinding::new(
+        self.material_bindings.push(MaterialBindings::new(
             device,
             queue,
             phong_layout,
-            texture_layouts,
+            texture_layout,
             phong,
             color_texture,
             normal_texture,

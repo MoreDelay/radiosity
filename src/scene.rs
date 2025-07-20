@@ -15,6 +15,7 @@ pub struct SceneState {
     #[expect(unused)]
     model_storage: model::ModelStorage,
     manager: manager::DrawManager,
+    mesh_index: model::MeshIndex,
     #[expect(unused)]
     instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,
@@ -95,20 +96,9 @@ impl SceneState {
             Some("Cube"),
         );
 
-        // let (color_texture, normal_texture) = match &mesh.material {
-        //     Some(mtl) => (mtl.color_texture.as_ref(), mtl.normal_texture.as_ref()),
-        //     None => (None, None),
-        // };
-
-        // let material = model
-        //     .material
-        //     .as_ref()
-        //     .unwrap()
-        //     .phong_params
-        //     .as_ref()
-        //     .unwrap();
-
         let pipeline_mode = render::PipelineMode::Flat;
+        manager.set_pipeline(pipeline_mode, mesh_index);
+
         let use_first_person_camera = false;
 
         SceneState {
@@ -118,6 +108,7 @@ impl SceneState {
             last_time,
             model_storage,
             manager,
+            mesh_index,
             instances,
             target_camera,
             first_person_camera,
@@ -232,8 +223,9 @@ impl SceneState {
             Color => Normal,
             Normal => Flat,
         };
+        self.manager.set_pipeline(next_mode, self.mesh_index);
         self.pipeline_mode = next_mode;
-        self.pipeline_mode
+        next_mode
     }
 
     pub fn toggle_camera(&mut self) -> bool {

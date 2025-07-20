@@ -56,6 +56,14 @@ impl DrawManager {
         }
     }
 
+    pub fn set_pipeline(&mut self, pipeline: render::PipelineMode, index: model::MeshIndex) {
+        let mesh_info = self
+            .meshes
+            .get_mut(&index)
+            .expect("only set pipeline for drawn meshes");
+        mesh_info.pipeline_mode = pipeline;
+    }
+
     fn add_material(
         &mut self,
         storage: &model::ModelStorage,

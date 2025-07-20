@@ -38,12 +38,12 @@ pub struct RenderState {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     phong_layout: resource::PhongBindGroupLayout,
-    texture_layouts: resource::TextureBindGroupLayouts,
+    texture_layout: resource::TextureBindGroupLayout,
     texture_pipelines: pipeline::TexturePipelines,
     #[expect(unused)]
     mesh_buffers: Vec<resource::MeshBuffer>,
     #[expect(unused)]
-    material_bindings: Vec<resource::MaterialBinding>,
+    material_bindings: Vec<resource::MaterialBindings>,
     #[expect(unused)]
     instance_buffers: Vec<resource::InstanceBuffer>,
     depth_texture: resource::Texture,
@@ -87,11 +87,16 @@ impl RenderStateInit {
             .await
             .expect("no hardware available to render");
 
+        let required_limits = wgpu::Limits {
+            max_bind_groups: 5,
+            ..Default::default()
+        };
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 // list available features with adapter.features() or device.features()
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits,
                 label: None,
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
@@ -138,24 +143,10 @@ impl RenderStateInit {
 
 impl RenderState {
     #[allow(clippy::too_many_arguments)]
-    pub fn create<C, L>(
-        init: RenderStateInit,
-        camera: &C,
-        light: &L,
-        // phong: &P,
-        // mesh: &M,
-        // instances: &I,
-        // color_texture: Option<&T>,
-        // normal_texture: Option<&N>,
-    ) -> anyhow::Result<Self>
+    pub fn create<C, L>(init: RenderStateInit, camera: &C, light: &L) -> anyhow::Result<Self>
     where
         C: GpuTransfer<Raw = CameraRaw>,
         L: GpuTransfer<Raw = LightRaw>,
-        // P: GpuTransfer<Raw = PhongRaw>,
-        // M: GpuTransfer<Raw = TriangleBufferRaw>,
-        // I: GpuTransfer<Raw = InstanceBufferRaw>,
-        // T: GpuTransferTexture,
-        // N: GpuTransferTexture,
     {
         let RenderStateInit {
             surface,
@@ -166,7 +157,7 @@ impl RenderState {
             depth_texture,
         } = init;
 
-        let texture_layouts = resource::TextureBindGroupLayouts::new(&device);
+        let texture_layout = resource::TextureBindGroupLayout::new(&device);
 
         let camera_layout = resource::CameraBindGroupLayout::new(&device);
         let camera_binding =
@@ -181,7 +172,7 @@ impl RenderState {
         let texture_pipelines = pipeline::TexturePipelines::new(
             &device,
             config.format,
-            &texture_layouts,
+            &texture_layout,
             &camera_layout,
             &light_layout,
             &phong_layout,
@@ -189,18 +180,6 @@ impl RenderState {
 
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
-
-        // let material_binding = resource::MaterialBinding::new(
-        //     &device,
-        //     &queue,
-        //     &texture_layout,
-        //     // color_texture,
-        //     // normal_texture,
-        //     Some("Cube"),
-        // );
-
-        // let mesh_buffer = resource::MeshBuffer::new(&device, mesh, Some("Single"));
-        // let instance_buffer = resource::InstanceBuffer::new(&device, instances, Some("Grid"));
 
         let model_resource_storage = ModelResourceStorage::new();
 
@@ -218,7 +197,7 @@ impl RenderState {
             phong_layout,
             camera_binding,
             light_binding,
-            texture_layouts,
+            texture_layout,
             texture_pipelines,
             light_pipeline,
             model_resource_storage,
@@ -252,7 +231,6 @@ impl RenderState {
         self.camera_binding.update(&self.queue, data);
     }
 
-    // pub fn draw(&mut self, pipeline_mode: PipelineMode) -> Result<(), wgpu::SurfaceError> {
     pub fn draw<'a, I, D>(
         &mut self,
         mtl_iter: I,
@@ -313,15 +291,7 @@ impl RenderState {
             let material = self
                 .model_resource_storage
                 .get_material_binding(mesh_iter.get_index());
-            // let pipeline = match (&material.color, &material.normal) {
-            //     (None, None) => self.texture_pipelines.get_flat().deref(),
-            //     (None, Some(_)) => unreachable!(),
-            //     (Some(_), None) => self.texture_pipelines.get_color().deref(),
-            //     (Some(_), Some(_)) => self.texture_pipelines.get_normal().deref(),
-            // };
-            // render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
-            render_pass.set_bind_group(3, &material.texture_bind_group, &[]);
 
             for draw_slice in mesh_iter {
                 let DrawSlice {
@@ -331,12 +301,38 @@ impl RenderState {
                     pipeline_mode,
                 } = draw_slice;
 
-                let pipeline = match pipeline_mode {
-                    PipelineMode::Flat => self.texture_pipelines.get_flat().deref(),
-                    PipelineMode::Color => self.texture_pipelines.get_color().deref(),
-                    PipelineMode::Normal => self.texture_pipelines.get_normal().deref(),
-                };
-                render_pass.set_pipeline(pipeline);
+                match pipeline_mode {
+                    PipelineMode::Flat => {
+                        let pipeline = self.texture_pipelines.get_flat().deref();
+                        render_pass.set_pipeline(pipeline);
+                    }
+                    PipelineMode::Color => {
+                        let pipeline = self.texture_pipelines.get_color().deref();
+                        let color_bind_group = &material
+                            .color
+                            .as_ref()
+                            .expect("requested pipeline requires corresponding texture")
+                            .0;
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, color_bind_group, &[]);
+                    }
+                    PipelineMode::Normal => {
+                        let pipeline = self.texture_pipelines.get_normal().deref();
+                        let color_bind_group = &material
+                            .color
+                            .as_ref()
+                            .expect("requested pipeline requires corresponding texture")
+                            .0;
+                        let normal_bind_group = &material
+                            .normal
+                            .as_ref()
+                            .expect("requested pipeline requires corresponding texture")
+                            .0;
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, color_bind_group, &[]);
+                        render_pass.set_bind_group(4, normal_bind_group, &[]);
+                    }
+                }
 
                 let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
 
@@ -359,36 +355,6 @@ impl RenderState {
             }
         }
 
-        // render_pass.set_vertex_buffer(1, self.instance_buffer.buffer.slice(..));
-        //
-        // // scene pass
-        // match pipeline_mode {
-        //     PipelineMode::Flat => render_pass.set_pipeline(&self.texture_pipelines.get_flat()),
-        //     PipelineMode::Color if self.color_pipeline.is_some() => {
-        //         let color_pipeline = self.color_pipeline.as_ref().unwrap();
-        //         render_pass.set_pipeline(&color_pipeline.0);
-        //     }
-        //     PipelineMode::Normal if self.normal_pipeline.is_some() => {
-        //         let normal_pipeline = &self.normal_pipeline.as_ref().unwrap();
-        //         render_pass.set_pipeline(&normal_pipeline.0);
-        //     }
-        //     _ => render_pass.set_pipeline(&self.flat_pipeline.0),
-        // }
-        // render_pass.set_vertex_buffer(0, self.mesh_buffer.vertices.slice(..));
-        // render_pass.set_index_buffer(
-        //     self.mesh_buffer.indices.slice(..),
-        //     wgpu::IndexFormat::Uint32,
-        // );
-        // render_pass.set_bind_group(0, &self.camera_binding.bind_group, &[]);
-        // render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
-        // render_pass.set_bind_group(2, &self.phong_binding.bind_group, &[]);
-        // render_pass.set_bind_group(3, &self.material_binding.bind_group, &[]);
-        // render_pass.draw_indexed(
-        //     0..self.mesh_buffer.num_indices,
-        //     0,
-        //     0..self.instance_buffer.num_instances,
-        // );
-
         // light pass
         if let Some(index) = light_mesh_index {
             render_pass.set_pipeline(self.light_pipeline.deref());
@@ -396,10 +362,6 @@ impl RenderState {
             render_pass.set_vertex_buffer(0, buffer.vertices.slice(..));
             render_pass.draw_indexed(0..buffer.num_indices, 0, 0..1);
         }
-        // render_pass.set_pipeline(self.light_pipeline.deref());
-        // // reuse bindings from above, see:
-        // // https://toji.dev/webgpu-best-practices/bind-groups#reusing-pipeline-layouts
-        // render_pass.draw_indexed(0..self.mesh_buffer.num_indices, 0, 0..1);
 
         // render pass recording ends when dropped
         drop(render_pass);
@@ -419,7 +381,7 @@ impl RenderState {
             &self.device,
             &self.queue,
             &self.phong_layout,
-            &self.texture_layouts,
+            &self.texture_layout,
             &material.phong_params,
             material.color_texture.as_ref(),
             material.normal_texture.as_ref(),
