@@ -205,9 +205,10 @@ impl SceneState {
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
         // self.render_state.draw(self.pipeline_mode)
+        let mesh_buffer_index = self.manager.get_buffer_index(self.mesh_index);
         self.render_state
             .borrow_mut()
-            .draw(self.manager.draw_iter(), None)
+            .draw(self.manager.draw_iter(), mesh_buffer_index)
     }
 
     /// returns true if paused after toggling

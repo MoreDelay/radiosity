@@ -348,7 +348,6 @@ impl RenderState {
                 };
 
                 render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-
                 render_pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
 
                 render_pass.draw_indexed(slice, 0, instance_slice);

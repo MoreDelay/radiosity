@@ -146,6 +146,11 @@ impl DrawManager {
             .subscribed_meshes
             .insert(mesh_info_index, subscription);
     }
+
+    pub fn get_buffer_index(&self, index: model::MeshIndex) -> Option<render::MeshBufferIndex> {
+        let mesh_info = self.meshes.get(&index);
+        mesh_info.map(|info| info.buffer_index)
+    }
 }
 
 pub struct DrawIterator<'a> {
