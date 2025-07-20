@@ -5,7 +5,7 @@ struct VertexInput {
     @location(2) normal: vec3<f32>,
     @location(3) tangent: vec3<f32>,
     @location(4) bitangent: vec3<f32>,
-};
+}
 
 struct InstanceInput {
     @location(5) model_matrix_0: vec4<f32>,
@@ -16,7 +16,7 @@ struct InstanceInput {
     @location(9) normal_matrix_0: vec3<f32>,
     @location(10) normal_matrix_1: vec3<f32>,
     @location(11) normal_matrix_2: vec3<f32>,
-};
+}
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
@@ -25,12 +25,19 @@ struct VertexOutput {
     @location(2) tangent_position: vec3<f32>,
     @location(3) tangent_light_position: vec3<f32>,
     @location(4) tangent_view_position: vec3<f32>,
-};
+}
+
+struct PhongInput{
+    specular_color: vec3<f32>,
+    specular_exponent: f32,
+    diffuse_color: vec3<f32>,
+    ambient_color: vec3<f32>,
+}
 
 struct Camera {
     view_pos: vec4<f32>,
     view_proj: mat4x4<f32>,
-};
+}
 
 struct Light {
     position: vec3<f32>,
@@ -45,6 +52,9 @@ var<uniform> camera: Camera;
 
 @group(1) @binding(0)
 var<uniform> light: Light;
+
+@group(2) @binding(0)
+var<uniform> phong: PhongInput;
 
 @group(3) @binding(0)
 var t_diffuse: texture_2d<f32>;
@@ -106,9 +116,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let view_dir = normalize(in.tangent_view_position - in.tangent_position);
     let half_dir = normalize(view_dir + light_dir);
-    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
+    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), phong.specular_exponent);
     // let reflect_dir = reflect(-light_dir, in.world_normal);
-    // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), 32.0);
+    // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), phong.specular_exponent);
     let specular_color = specular_strength * light.color;
 
     let result = (ambient_color + diffuse_color + specular_color) * object_color.xyz;

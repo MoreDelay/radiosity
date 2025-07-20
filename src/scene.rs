@@ -222,7 +222,8 @@ impl SceneState {
         let next_mode = match self.pipeline_mode {
             Flat => Color,
             Color => Normal,
-            Normal => Flat,
+            Normal => ColorNormal,
+            ColorNormal => Flat,
         };
         self.manager.set_pipeline(next_mode, self.mesh_index);
         self.pipeline_mode = next_mode;

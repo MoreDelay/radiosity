@@ -20,6 +20,7 @@ pub enum PipelineMode {
     Flat,
     Color,
     Normal,
+    ColorNormal,
 }
 
 pub struct RenderStateInit {
@@ -318,6 +319,16 @@ impl RenderState {
                     }
                     PipelineMode::Normal => {
                         let pipeline = self.texture_pipelines.get_normal().deref();
+                        let normal_bind_group = &material
+                            .normal
+                            .as_ref()
+                            .expect("requested pipeline requires corresponding texture")
+                            .0;
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, normal_bind_group, &[]);
+                    }
+                    PipelineMode::ColorNormal => {
+                        let pipeline = self.texture_pipelines.get_color_normal().deref();
                         let color_bind_group = &material
                             .color
                             .as_ref()

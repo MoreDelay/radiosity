@@ -3,14 +3,16 @@ use std::ops::Deref;
 use super::{layout, resource};
 
 pub struct FlatScenePipeline(wgpu::RenderPipeline);
-pub struct NormalScenePipeline(wgpu::RenderPipeline);
 pub struct ColorScenePipeline(wgpu::RenderPipeline);
+pub struct NormalScenePipeline(wgpu::RenderPipeline);
+pub struct ColorNormalScenePipeline(wgpu::RenderPipeline);
 pub struct LightPipeline(wgpu::RenderPipeline);
 
 pub struct TexturePipelines {
     flat: FlatScenePipeline,
     color: ColorScenePipeline,
     normal: NormalScenePipeline,
+    color_normal: ColorNormalScenePipeline,
 }
 
 impl TexturePipelines {
@@ -45,11 +47,20 @@ impl TexturePipelines {
             light_layout,
             phong_layout,
         )?;
+        let color_normal = ColorNormalScenePipeline::new(
+            device,
+            color_format,
+            texture_layout,
+            camera_layout,
+            light_layout,
+            phong_layout,
+        )?;
 
         Ok(Self {
             flat,
             color,
             normal,
+            color_normal,
         })
     }
 
@@ -63,6 +74,10 @@ impl TexturePipelines {
 
     pub fn get_normal(&self) -> &NormalScenePipeline {
         &self.normal
+    }
+
+    pub fn get_color_normal(&self) -> &ColorNormalScenePipeline {
+        &self.color_normal
     }
 }
 
@@ -96,48 +111,6 @@ impl FlatScenePipeline {
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("FlatPipeline"),
-        );
-        Ok(Self(pipeline))
-    }
-}
-
-impl NormalScenePipeline {
-    const SHADER: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/shaders/model_cn.wgsl"
-    ));
-
-    pub fn new(
-        device: &wgpu::Device,
-        color_format: wgpu::TextureFormat,
-        texture_layout: &resource::TextureBindGroupLayout,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
-        phong_layout: &resource::PhongBindGroupLayout,
-    ) -> anyhow::Result<Self> {
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("NormalPipelineLayout"),
-            bind_group_layouts: &[
-                &camera_layout.0,
-                &light_layout.0,
-                &phong_layout.0,
-                texture_layout, // color texture
-                texture_layout, // normal texture
-            ],
-            push_constant_ranges: &[],
-        });
-        let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("NormalShader"),
-            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
-        };
-        let pipeline = create_render_pipeline(
-            device,
-            &layout,
-            color_format,
-            Some(resource::Texture::DEPTH_FORMAT),
-            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
-            shader,
-            Some("NormalPipeline"),
         );
         Ok(Self(pipeline))
     }
@@ -179,6 +152,89 @@ impl ColorScenePipeline {
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("ColorPipeline"),
+        );
+        Ok(Self(pipeline))
+    }
+}
+
+impl NormalScenePipeline {
+    const SHADER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/shaders/model_n.wgsl"
+    ));
+
+    pub fn new(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        texture_layout: &resource::TextureBindGroupLayout,
+        camera_layout: &resource::CameraBindGroupLayout,
+        light_layout: &resource::LightBindGroupLayout,
+        phong_layout: &resource::PhongBindGroupLayout,
+    ) -> anyhow::Result<Self> {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("NormalPipelineLayout"),
+            bind_group_layouts: &[
+                &camera_layout.0,
+                &light_layout.0,
+                &phong_layout.0,
+                texture_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("NormalShader"),
+            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
+        };
+        let pipeline = create_render_pipeline(
+            device,
+            &layout,
+            color_format,
+            Some(resource::Texture::DEPTH_FORMAT),
+            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            shader,
+            Some("NormalPipeline"),
+        );
+        Ok(Self(pipeline))
+    }
+}
+
+impl ColorNormalScenePipeline {
+    const SHADER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/shaders/model_cn.wgsl"
+    ));
+
+    pub fn new(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        texture_layout: &resource::TextureBindGroupLayout,
+        camera_layout: &resource::CameraBindGroupLayout,
+        light_layout: &resource::LightBindGroupLayout,
+        phong_layout: &resource::PhongBindGroupLayout,
+    ) -> anyhow::Result<Self> {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ColorNormalPipelineLayout"),
+            bind_group_layouts: &[
+                &camera_layout.0,
+                &light_layout.0,
+                &phong_layout.0,
+                texture_layout, // color texture
+                texture_layout, // normal texture
+            ],
+            push_constant_ranges: &[],
+        });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("ColorNormalShader"),
+            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
+        };
+        let pipeline = create_render_pipeline(
+            device,
+            &layout,
+            color_format,
+            Some(resource::Texture::DEPTH_FORMAT),
+            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            shader,
+            Some("ColorNormalPipeline"),
         );
         Ok(Self(pipeline))
     }
@@ -294,6 +350,14 @@ impl Deref for ColorScenePipeline {
 }
 
 impl Deref for NormalScenePipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for ColorNormalScenePipeline {
     type Target = wgpu::RenderPipeline;
 
     fn deref(&self) -> &Self::Target {

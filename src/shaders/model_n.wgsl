@@ -56,6 +56,11 @@ var<uniform> light: Light;
 @group(2) @binding(0)
 var<uniform> phong: PhongInput;
 
+@group(3) @binding(0)
+var t_normal: texture_2d<f32>;
+@group(3) @binding(1)
+var s_normal: sampler;
+
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     // var: mutable, but need type specified
@@ -94,10 +99,12 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.tex_coords);
+
     let ambient_strength = 0.1;
     let ambient_color = phong.ambient_color * light.color * ambient_strength;
 
-    let tangent_normal = vec3(0., 0., 1.);
+    let tangent_normal = object_normal.xyz * 2.0 - 1.0;
     let light_dir = normalize(in.tangent_light_position - in.tangent_position);
     let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
     let diffuse_color = phong.diffuse_color * light.color * diffuse_strength;
@@ -112,5 +119,4 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let result = ambient_color + diffuse_color + specular_color;
     return vec4<f32>(result, 1.);
 }
-
 

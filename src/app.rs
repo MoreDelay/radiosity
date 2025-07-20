@@ -197,6 +197,7 @@ impl ApplicationHandler for App {
                             Flat => "flat",
                             Color => "color",
                             Normal => "normal",
+                            ColorNormal => "color-normal",
                         }
                     );
                 }
