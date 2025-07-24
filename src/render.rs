@@ -29,7 +29,6 @@ pub struct RenderStateInit {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    depth_texture: resource::Texture,
 }
 
 pub struct RenderState {
@@ -47,7 +46,7 @@ pub struct RenderState {
     material_bindings: Vec<resource::MaterialBindings>,
     #[expect(unused)]
     instance_buffers: Vec<resource::InstanceBuffer>,
-    depth_texture: resource::Texture,
+    depth_texture: resource::DepthTexture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
     light_pipeline: pipeline::LightPipeline,
@@ -125,15 +124,12 @@ impl RenderStateInit {
             desired_maximum_frame_latency: 2,
         };
 
-        let depth_texture =
-            resource::Texture::create_depth_texture(&device, &config, "depth_texture");
         Self {
             surface,
             device,
             queue,
             config,
             size,
-            depth_texture,
         }
     }
 
@@ -155,8 +151,9 @@ impl RenderState {
             queue,
             config,
             size,
-            depth_texture,
         } = init;
+
+        let depth_texture = resource::DepthTexture::create(&device, &config, "depth_texture");
 
         let texture_layout = resource::TextureBindGroupLayout::new(&device);
 
@@ -216,11 +213,8 @@ impl RenderState {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
             // resize depth texture
-            self.depth_texture = resource::Texture::create_depth_texture(
-                &self.device,
-                &self.config,
-                "depth_texture",
-            );
+            self.depth_texture =
+                resource::DepthTexture::create(&self.device, &self.config, "depth_texture");
         }
     }
 
