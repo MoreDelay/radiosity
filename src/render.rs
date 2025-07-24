@@ -1,4 +1,5 @@
 use std::{
+    num::NonZeroU32,
     ops::{Deref, Range},
     sync::Arc,
 };
@@ -6,7 +7,10 @@ use std::{
 use anyhow::Result;
 use winit::window::Window;
 
-use crate::{camera, model, render::resource::ModelResourceStorage};
+use crate::{
+    camera, model,
+    render::resource::{ModelResourceStorage, TextureDims},
+};
 
 mod layout;
 mod pipeline;
@@ -47,6 +51,9 @@ pub struct RenderState {
     #[expect(unused)]
     instance_buffers: Vec<resource::InstanceBuffer>,
     depth_texture: resource::DepthTexture,
+    shadow_texture: resource::DepthTexture,
+    shadow_binding: resource::ShadowBinding,
+    shadow_pipeline: pipeline::ShadowPipeline,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
     light_pipeline: pipeline::LightPipeline,
@@ -153,7 +160,11 @@ impl RenderState {
             size,
         } = init;
 
-        let depth_texture = resource::DepthTexture::create(&device, &config, "depth_texture");
+        let depth_dims = TextureDims {
+            width: NonZeroU32::new(config.width.max(1)).unwrap(),
+            height: NonZeroU32::new(config.height.max(1)).unwrap(),
+        };
+        let depth_texture = resource::DepthTexture::create(&device, depth_dims, "depth_texture");
 
         let texture_layout = resource::TextureBindGroupLayout::new(&device);
 
@@ -167,6 +178,14 @@ impl RenderState {
 
         let phong_layout = resource::PhongBindGroupLayout::new(&device);
 
+        let shadow_dims = TextureDims {
+            width: NonZeroU32::new(1024).unwrap(),
+            height: NonZeroU32::new(1024).unwrap(),
+        };
+        let shadow_texture = resource::DepthTexture::create(&device, shadow_dims, "shadow_texture");
+        let shadow_binding =
+            resource::ShadowBinding::new(&device, &camera_layout, camera, Some("Shadow"));
+
         let texture_pipelines = pipeline::TexturePipelines::new(
             &device,
             config.format,
@@ -175,6 +194,7 @@ impl RenderState {
             &light_layout,
             &phong_layout,
         )?;
+        let shadow_pipeline = pipeline::ShadowPipeline::new(&device, &camera_layout)?;
 
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
@@ -192,6 +212,9 @@ impl RenderState {
             config,
             size,
             depth_texture,
+            shadow_texture,
+            shadow_binding,
+            shadow_pipeline,
             phong_layout,
             camera_binding,
             light_binding,
@@ -213,8 +236,12 @@ impl RenderState {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
             // resize depth texture
+            let dims = TextureDims {
+                width: NonZeroU32::new(new_size.width).unwrap(),
+                height: NonZeroU32::new(new_size.height).unwrap(),
+            };
             self.depth_texture =
-                resource::DepthTexture::create(&self.device, &self.config, "depth_texture");
+                resource::DepthTexture::create(&self.device, dims, "depth_texture");
         }
     }
 
@@ -248,6 +275,28 @@ impl RenderState {
             });
         // clear out window by writing a color
 
+        // create shadow map
+        let mut shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Shadow RenderPass"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.shadow_texture.view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        shadow_render_pass.set_pipeline(&self.shadow_pipeline);
+        shadow_render_pass.set_bind_group(0, &self.shadow_binding.bind_group, &[]);
+
+        drop(shadow_render_pass);
+
+        // render models
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("RenderPass"),
             color_attachments: &[

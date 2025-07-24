@@ -1,4 +1,7 @@
-use std::{num::NonZeroU64, ops::Deref};
+use std::{
+    num::{NonZeroU32, NonZeroU64},
+    ops::Deref,
+};
 
 use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
@@ -8,6 +11,12 @@ use crate::render::layout::PhongRaw;
 use super::{
     CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, TriangleBufferRaw,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub struct TextureDims {
+    pub width: NonZeroU32,
+    pub height: NonZeroU32,
+}
 
 pub struct TextureBindGroupLayout(wgpu::BindGroupLayout);
 
@@ -38,6 +47,10 @@ pub struct CameraBinding {
     pub buffer: wgpu::Buffer,
 }
 pub struct LightBinding {
+    pub bind_group: wgpu::BindGroup,
+    pub buffer: wgpu::Buffer,
+}
+pub struct ShadowBinding {
     pub bind_group: wgpu::BindGroup,
     pub buffer: wgpu::Buffer,
 }
@@ -81,10 +94,11 @@ pub struct ModelResourceStorage {
 impl DepthTexture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    pub fn create(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
+    pub fn create(device: &wgpu::Device, dims: TextureDims, label: &str) -> Self {
+        let TextureDims { width, height } = dims;
         let size = wgpu::Extent3d {
-            width: config.width.max(1),
-            height: config.height.max(1),
+            width: width.get(),
+            height: height.get(),
             depth_or_array_layers: 1,
         };
         let desc = wgpu::TextureDescriptor {
@@ -342,6 +356,49 @@ impl LightBinding {
         // make sure size unwrap never panics
         const_assert_ne!(std::mem::size_of::<LightRaw>(), 0);
         let size = NonZeroU64::try_from(std::mem::size_of::<LightRaw>() as u64).unwrap();
+
+        let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
+        let raw_data = data.to_raw();
+        view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
+    }
+}
+
+impl ShadowBinding {
+    pub fn new<C>(
+        device: &wgpu::Device,
+        layout: &CameraBindGroupLayout,
+        data: &C,
+        label: Option<&str>,
+    ) -> Self
+    where
+        C: GpuTransfer<Raw = CameraRaw>,
+    {
+        let raw_data = data.to_raw();
+
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: label.map(|s| format!("{s}-ShadowBuffer")).as_deref(),
+            contents: bytemuck::cast_slice(&[raw_data]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: label.map(|s| format!("{s}-ShadowBindGroup")).as_deref(),
+            layout: &layout.0,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+        });
+        Self { bind_group, buffer }
+    }
+
+    #[expect(unused)]
+    pub fn update<C>(&self, queue: &wgpu::Queue, data: &C)
+    where
+        C: GpuTransfer<Raw = CameraRaw>,
+    {
+        // make sure size unwrap never panics
+        const_assert_ne!(std::mem::size_of::<CameraRaw>(), 0);
+        let size = NonZeroU64::try_from(std::mem::size_of::<CameraRaw>() as u64).unwrap();
 
         let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
         let raw_data = data.to_raw();

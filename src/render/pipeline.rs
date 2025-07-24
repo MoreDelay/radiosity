@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use crate::render::resource::DepthTexture;
+
 use super::{layout, resource};
 
 pub struct FlatScenePipeline(wgpu::RenderPipeline);
@@ -14,6 +16,8 @@ pub struct TexturePipelines {
     normal: NormalScenePipeline,
     color_normal: ColorNormalScenePipeline,
 }
+
+pub struct ShadowPipeline(wgpu::RenderPipeline);
 
 impl TexturePipelines {
     pub fn new(
@@ -274,6 +278,65 @@ impl LightPipeline {
     }
 }
 
+impl ShadowPipeline {
+    const SHADER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/shaders/shadow.wgsl"
+    ));
+
+    pub fn new(
+        device: &wgpu::Device,
+        camera_layout: &resource::CameraBindGroupLayout,
+    ) -> anyhow::Result<Self> {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Shadow Pipeline Layout"),
+            bind_group_layouts: &[&camera_layout.0],
+            push_constant_ranges: &[],
+        });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("Shadow Shader"),
+            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
+        };
+        let shader = device.create_shader_module(shader);
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Shadow Pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: None,
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DepthTexture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0, // use all samples
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+        Ok(Self(pipeline))
+    }
+}
+
 fn create_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
@@ -366,6 +429,14 @@ impl Deref for ColorNormalScenePipeline {
 }
 
 impl Deref for LightPipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for ShadowPipeline {
     type Target = wgpu::RenderPipeline;
 
     fn deref(&self) -> &Self::Target {
