@@ -103,17 +103,19 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     return out;
 }
 
-fn check_shadow(light_position: vec4<f32>) -> f32 {
+fn is_in_light(light_position: vec4<f32>) -> f32 {
     if (light_position.w <= 0.0) {
-        return 0.0;
+        return 1.0;
     }
     let corrected = light_position.xy / light_position.w;
     let uv = corrected * vec2<f32>(.5, -.5) + vec2<f32>(.5, .5);
-    // let light_position1 = light_position.xyz / light_position.w;
+    if (uv.x < 0.  || uv.x > 1. || uv.y < 0. || uv .y > 1.) {
+        return 1.0;
+    }
 
-    let current_depth = light_position.z / light_position.w;
-    // return textureSampleCompareLevel(t_shadow, s_shadow, light_position1.xy, current_depth);
-    return 1. - textureSampleCompareLevel(t_shadow, s_shadow, uv, current_depth);
+    let bias = 0.00005;
+    let current_depth = light_position.z / light_position.w - bias;
+    return textureSampleCompareLevel(t_shadow, s_shadow, uv, current_depth);
 }
 
 @fragment
@@ -133,9 +135,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), phong.specular_exponent);
     let specular_color = specular_strength * phong.specular_color * light.color;
 
-    let in_shadow = check_shadow(in.light_position);
+    let in_light = is_in_light(in.light_position);
 
-    let result = ambient_color + (diffuse_color + specular_color) * (1. - in_shadow);
+    let result = ambient_color + (diffuse_color + specular_color) * in_light;
     return vec4<f32>(result, 1.);
 }
 
