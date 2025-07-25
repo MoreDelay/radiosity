@@ -50,8 +50,7 @@ pub struct RenderState {
     material_bindings: Vec<resource::MaterialBindings>,
     #[expect(unused)]
     instance_buffers: Vec<resource::InstanceBuffer>,
-    depth_texture: resource::DepthTexture,
-    shadow_texture: resource::DepthTexture,
+    depth_texture: resource::Texture,
     shadow_binding: resource::ShadowBinding,
     shadow_pipeline: pipeline::ShadowPipeline,
     camera_binding: resource::CameraBinding,
@@ -164,7 +163,8 @@ impl RenderState {
             width: NonZeroU32::new(config.width.max(1)).unwrap(),
             height: NonZeroU32::new(config.height.max(1)).unwrap(),
         };
-        let depth_texture = resource::DepthTexture::create(&device, depth_dims, "depth_texture");
+        let depth_texture =
+            resource::Texture::create_depth(&device, depth_dims, Some("depth_texture"));
 
         let texture_layout = resource::TextureBindGroupLayout::new(&device);
 
@@ -178,13 +178,15 @@ impl RenderState {
 
         let phong_layout = resource::PhongBindGroupLayout::new(&device);
 
-        let shadow_dims = TextureDims {
-            width: NonZeroU32::new(1024).unwrap(),
-            height: NonZeroU32::new(1024).unwrap(),
-        };
-        let shadow_texture = resource::DepthTexture::create(&device, shadow_dims, "shadow_texture");
-        let shadow_binding =
-            resource::ShadowBinding::new(&device, &camera_layout, camera, Some("Shadow"));
+        let shadow_uniform_layout = resource::ShadowUniformBindGroupLayout::new(&device);
+        let shadow_texture_layout = resource::ShadowTextureBindGroupLayout::new(&device);
+        let shadow_binding = resource::ShadowBinding::new(
+            &device,
+            &shadow_uniform_layout,
+            &shadow_texture_layout,
+            camera,
+            Some("Shadow"),
+        );
 
         let texture_pipelines = pipeline::TexturePipelines::new(
             &device,
@@ -192,6 +194,8 @@ impl RenderState {
             &texture_layout,
             &camera_layout,
             &light_layout,
+            &shadow_uniform_layout,
+            &shadow_texture_layout,
             &phong_layout,
         )?;
         let shadow_pipeline = pipeline::ShadowPipeline::new(&device, &camera_layout)?;
@@ -212,7 +216,6 @@ impl RenderState {
             config,
             size,
             depth_texture,
-            shadow_texture,
             shadow_binding,
             shadow_pipeline,
             phong_layout,
@@ -241,7 +244,7 @@ impl RenderState {
                 height: NonZeroU32::new(new_size.height).unwrap(),
             };
             self.depth_texture =
-                resource::DepthTexture::create(&self.device, dims, "depth_texture");
+                resource::Texture::create_depth(&self.device, dims, Some("depth_texture"));
         }
     }
 
@@ -280,7 +283,7 @@ impl RenderState {
             label: Some("Shadow RenderPass"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.shadow_texture.view,
+                view: &self.shadow_binding.texture.view,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Store,
@@ -292,7 +295,7 @@ impl RenderState {
         });
 
         shadow_render_pass.set_pipeline(&self.shadow_pipeline);
-        shadow_render_pass.set_bind_group(0, &self.shadow_binding.bind_group, &[]);
+        shadow_render_pass.set_bind_group(0, &self.shadow_binding.uniform_bind_group, &[]);
 
         drop(shadow_render_pass);
 
@@ -348,7 +351,11 @@ impl RenderState {
                 match pipeline_mode {
                     PipelineMode::Flat => {
                         let pipeline = self.texture_pipelines.get_flat().deref();
+                        let uniform = &self.shadow_binding.uniform_bind_group;
+                        let texture = &self.shadow_binding.texture_bind_group;
                         render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, uniform, &[]);
+                        render_pass.set_bind_group(4, texture, &[]);
                     }
                     PipelineMode::Color => {
                         let pipeline = self.texture_pipelines.get_color().deref();

@@ -22,6 +22,8 @@ pub struct TextureBindGroupLayout(wgpu::BindGroupLayout);
 
 pub struct CameraBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct LightBindGroupLayout(pub wgpu::BindGroupLayout);
+pub struct ShadowUniformBindGroupLayout(pub wgpu::BindGroupLayout);
+pub struct ShadowTextureBindGroupLayout(pub wgpu::BindGroupLayout);
 pub struct PhongBindGroupLayout(pub wgpu::BindGroupLayout);
 
 pub struct Texture {
@@ -29,12 +31,6 @@ pub struct Texture {
     pub texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
-}
-
-pub struct DepthTexture {
-    #[expect(unused)]
-    pub texture: wgpu::Texture,
-    pub view: wgpu::TextureView,
 }
 
 pub struct MaterialBindings {
@@ -51,8 +47,10 @@ pub struct LightBinding {
     pub buffer: wgpu::Buffer,
 }
 pub struct ShadowBinding {
-    pub bind_group: wgpu::BindGroup,
+    pub uniform_bind_group: wgpu::BindGroup,
+    pub texture_bind_group: wgpu::BindGroup,
     pub buffer: wgpu::Buffer,
+    pub texture: Texture,
 }
 pub struct PhongBinding {
     pub bind_group: wgpu::BindGroup,
@@ -91,10 +89,10 @@ pub struct ModelResourceStorage {
     material_bindings: Vec<MaterialBindings>,
 }
 
-impl DepthTexture {
+impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    pub fn create(device: &wgpu::Device, dims: TextureDims, label: &str) -> Self {
+    pub fn create_depth(device: &wgpu::Device, dims: TextureDims, label: Option<&str>) -> Self {
         let TextureDims { width, height } = dims;
         let size = wgpu::Extent3d {
             width: width.get(),
@@ -102,7 +100,7 @@ impl DepthTexture {
             depth_or_array_layers: 1,
         };
         let desc = wgpu::TextureDescriptor {
-            label: Some(label),
+            label,
             size,
             mip_level_count: 1,
             sample_count: 1,
@@ -112,8 +110,26 @@ impl DepthTexture {
             view_formats: &[],
         };
         let texture = device.create_texture(&desc);
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            lod_min_clamp: 0.0,
+            lod_max_clamp: 100.0,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self { texture, view }
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
     }
 }
 
@@ -185,6 +201,52 @@ impl LightBindGroupLayout {
                 },
                 count: None,
             }],
+        });
+        Self(layout)
+    }
+}
+
+impl ShadowUniformBindGroupLayout {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ShadowBindGroupLayout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        Self(layout)
+    }
+}
+
+impl ShadowTextureBindGroupLayout {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ShadowBindGroupLayout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
         });
         Self(layout)
     }
@@ -366,29 +428,62 @@ impl LightBinding {
 impl ShadowBinding {
     pub fn new<C>(
         device: &wgpu::Device,
-        layout: &CameraBindGroupLayout,
-        data: &C,
+        uniform_layout: &ShadowUniformBindGroupLayout,
+        texture_layout: &ShadowTextureBindGroupLayout,
+        light_camera: &C,
         label: Option<&str>,
     ) -> Self
     where
         C: GpuTransfer<Raw = CameraRaw>,
     {
-        let raw_data = data.to_raw();
+        let raw_data = light_camera.to_raw();
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s}-ShadowBuffer")).as_deref(),
             contents: bytemuck::cast_slice(&[raw_data]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: label.map(|s| format!("{s}-ShadowBindGroup")).as_deref(),
-            layout: &layout.0,
+        let dims = TextureDims {
+            width: NonZeroU32::new(1024).unwrap(),
+            height: NonZeroU32::new(1024).unwrap(),
+        };
+        let texture = Texture::create_depth(
+            device,
+            dims,
+            label.map(|s| format!("{s}-ShadowTexture")).as_deref(),
+        );
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: label
+                .map(|s| format!("{s}-ShadowUniformBindGroup"))
+                .as_deref(),
+            layout: &uniform_layout.0,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: buffer.as_entire_binding(),
             }],
         });
-        Self { bind_group, buffer }
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: label
+                .map(|s| format!("{s}-ShadowTextureBindGroup"))
+                .as_deref(),
+            layout: &texture_layout.0,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                },
+            ],
+        });
+        Self {
+            uniform_bind_group,
+            texture_bind_group,
+            buffer,
+            texture,
+        }
     }
 
     #[expect(unused)]

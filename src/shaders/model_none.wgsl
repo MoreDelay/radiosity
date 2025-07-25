@@ -12,7 +12,6 @@ struct InstanceInput {
     @location(6) model_matrix_1: vec4<f32>,
     @location(7) model_matrix_2: vec4<f32>,
     @location(8) model_matrix_3: vec4<f32>,
-
     @location(9) normal_matrix_0: vec3<f32>,
     @location(10) normal_matrix_1: vec3<f32>,
     @location(11) normal_matrix_2: vec3<f32>,
@@ -25,9 +24,10 @@ struct VertexOutput {
     @location(2) tangent_position: vec3<f32>,
     @location(3) tangent_light_position: vec3<f32>,
     @location(4) tangent_view_position: vec3<f32>,
+    @location(5) light_position: vec4<f32>,
 }
 
-struct PhongInput{
+struct PhongInput {
     specular_color: vec3<f32>,
     specular_exponent: f32,
     diffuse_color: vec3<f32>,
@@ -55,6 +55,16 @@ var<uniform> light: Light;
 
 @group(2) @binding(0)
 var<uniform> phong: PhongInput;
+
+@group(3) @binding(0)
+var<uniform> light_camera: Camera;
+
+@group(4) @binding(0)
+var t_shadow: texture_depth_2d;
+@group(4) @binding(1)
+var s_shadow: sampler_comparison;
+
+
 
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
@@ -89,7 +99,16 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.tangent_position = tangent_matrix * world_position.xyz;
     out.tangent_view_position = tangent_matrix * camera.view_pos.xyz;
     out.tangent_light_position = tangent_matrix * light.position;
+    out.light_position = light_camera.view_proj * world_position;
     return out;
+}
+
+fn check_shadow(light_position: vec4<f32>) -> f32 {
+    let light_position1 = light_position.xyz / light_position.w;
+    let light_position2 = light_position1 * 0.5 + 0.5; // TODO: is this necessary?
+
+    let current_depth = light_position.z;
+    return textureSampleCompareLevel(t_shadow, s_shadow, light_position2.xy, current_depth);
 }
 
 @fragment
@@ -109,7 +128,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), phong.specular_exponent);
     let specular_color = specular_strength * phong.specular_color * light.color;
 
-    let result = ambient_color + diffuse_color + specular_color;
+    let in_shadow = check_shadow(in.light_position);
+
+    let result = ambient_color + (diffuse_color + specular_color) * (1. - in_shadow);
     return vec4<f32>(result, 1.);
 }
 

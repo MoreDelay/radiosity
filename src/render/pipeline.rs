@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::render::resource::DepthTexture;
+use crate::render::resource::Texture;
 
 use super::{layout, resource};
 
@@ -20,12 +20,15 @@ pub struct TexturePipelines {
 pub struct ShadowPipeline(wgpu::RenderPipeline);
 
 impl TexturePipelines {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &wgpu::Device,
         color_format: wgpu::TextureFormat,
         texture_layout: &resource::TextureBindGroupLayout,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
+        shadow_uniform_layout: &resource::ShadowUniformBindGroupLayout,
+        shadow_texture_layout: &resource::ShadowTextureBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
     ) -> anyhow::Result<Self> {
         let flat = FlatScenePipeline::new(
@@ -33,6 +36,8 @@ impl TexturePipelines {
             color_format,
             camera_layout,
             light_layout,
+            shadow_uniform_layout,
+            shadow_texture_layout,
             phong_layout,
         )?;
         let color = ColorScenePipeline::new(
@@ -96,11 +101,19 @@ impl FlatScenePipeline {
         color_format: wgpu::TextureFormat,
         camera_layout: &resource::CameraBindGroupLayout,
         light_layout: &resource::LightBindGroupLayout,
+        shadow_uniform_layout: &resource::ShadowUniformBindGroupLayout,
+        shadow_texture_layout: &resource::ShadowTextureBindGroupLayout,
         phong_layout: &resource::PhongBindGroupLayout,
     ) -> anyhow::Result<Self> {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("FlatPipelineLayout"),
-            bind_group_layouts: &[&camera_layout.0, &light_layout.0, &phong_layout.0],
+            bind_group_layouts: &[
+                &camera_layout.0,
+                &light_layout.0,
+                &phong_layout.0,
+                &shadow_uniform_layout.0,
+                &shadow_texture_layout.0,
+            ],
             push_constant_ranges: &[],
         });
         let shader = wgpu::ShaderModuleDescriptor {
@@ -111,7 +124,7 @@ impl FlatScenePipeline {
             device,
             &layout,
             color_format,
-            Some(resource::DepthTexture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("FlatPipeline"),
@@ -152,7 +165,7 @@ impl ColorScenePipeline {
             device,
             &layout,
             color_format,
-            Some(resource::DepthTexture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("ColorPipeline"),
@@ -193,7 +206,7 @@ impl NormalScenePipeline {
             device,
             &layout,
             color_format,
-            Some(resource::DepthTexture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("NormalPipeline"),
@@ -235,7 +248,7 @@ impl ColorNormalScenePipeline {
             device,
             &layout,
             color_format,
-            Some(resource::DepthTexture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("ColorNormalPipeline"),
@@ -269,7 +282,7 @@ impl LightPipeline {
             device,
             &layout,
             color_format,
-            Some(resource::DepthTexture::DEPTH_FORMAT),
+            Some(resource::Texture::DEPTH_FORMAT),
             &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
             shader,
             Some("Light Pipeline"),
@@ -319,7 +332,7 @@ impl ShadowPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: DepthTexture::DEPTH_FORMAT,
+                format: Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
