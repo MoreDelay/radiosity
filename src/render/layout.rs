@@ -185,6 +185,7 @@ where
             texture,
             view,
             sampler,
+            debug_sampler: None,
         }
     }
 }

@@ -53,6 +53,7 @@ pub struct RenderState {
     depth_texture: resource::Texture,
     shadow_binding: resource::ShadowBinding,
     shadow_pipeline: pipeline::ShadowPipeline,
+    debug_pipeline: pipeline::DebugPipeline,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
     light_pipeline: pipeline::LightPipeline,
@@ -180,10 +181,12 @@ impl RenderState {
 
         let shadow_uniform_layout = resource::ShadowUniformBindGroupLayout::new(&device);
         let shadow_texture_layout = resource::ShadowTextureBindGroupLayout::new(&device);
+        let debug_texture_layout = resource::DebugTextureBindGroupLayout::new(&device);
         let shadow_binding = resource::ShadowBinding::new(
             &device,
             &shadow_uniform_layout,
             &shadow_texture_layout,
+            &debug_texture_layout,
             camera,
             Some("Shadow"),
         );
@@ -199,6 +202,8 @@ impl RenderState {
             &phong_layout,
         )?;
         let shadow_pipeline = pipeline::ShadowPipeline::new(&device, &camera_layout)?;
+        let debug_pipeline =
+            pipeline::DebugPipeline::new(&device, config.format, &debug_texture_layout)?;
 
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
@@ -218,6 +223,7 @@ impl RenderState {
             depth_texture,
             shadow_binding,
             shadow_pipeline,
+            debug_pipeline,
             phong_layout,
             camera_binding,
             light_binding,
@@ -262,7 +268,7 @@ impl RenderState {
         light_mesh_index: Option<MeshBufferIndex>,
     ) -> Result<(), wgpu::SurfaceError>
     where
-        I: Iterator<Item = D>,
+        I: Iterator<Item = D> + Clone,
         D: DrawMaterial,
     {
         // blocks until surface provides render target
@@ -296,6 +302,36 @@ impl RenderState {
 
         shadow_render_pass.set_pipeline(&self.shadow_pipeline);
         shadow_render_pass.set_bind_group(0, &self.shadow_binding.uniform_bind_group, &[]);
+
+        for mesh_iter in mtl_iter.clone() {
+            for draw_slice in mesh_iter {
+                let DrawSlice {
+                    buffer_index,
+                    slice,
+                    instance_index,
+                    ..
+                } = draw_slice;
+
+                let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
+
+                let instance_slice = if let Some(instance_index) = instance_index {
+                    let instances = self
+                        .model_resource_storage
+                        .get_instance_buffer(instance_index);
+
+                    shadow_render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
+                    0..instances.num_instances
+                } else {
+                    0..1 // default to use when no instances are set, per wgpu docs
+                };
+
+                shadow_render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+                shadow_render_pass
+                    .set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+
+                shadow_render_pass.draw_indexed(slice, 0, instance_slice);
+            }
+        }
 
         drop(shadow_render_pass);
 
@@ -425,6 +461,35 @@ impl RenderState {
 
         // render pass recording ends when dropped
         drop(render_pass);
+
+        // let mut debug_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //     label: Some("Debug RenderPass"),
+        //     color_attachments: &[
+        //         // target for fragment shader @location(0)
+        //         Some(wgpu::RenderPassColorAttachment {
+        //             view: &view,
+        //             resolve_target: None, // used for multi-sampling
+        //             ops: wgpu::Operations {
+        //                 // can skip clear if rendering will cover whole surface anyway
+        //                 load: wgpu::LoadOp::Clear(wgpu::Color {
+        //                     r: 0.1,
+        //                     g: 0.2,
+        //                     b: 0.3,
+        //                     a: 1.0,
+        //                 }),
+        //                 store: wgpu::StoreOp::Store,
+        //             },
+        //         }),
+        //     ],
+        //     depth_stencil_attachment: None,
+        //     occlusion_query_set: None,
+        //     timestamp_writes: None,
+        // });
+        // debug_render_pass.set_pipeline(&self.debug_pipeline);
+        // debug_render_pass.set_bind_group(0, &self.shadow_binding.debug_bind_group, &[]);
+        // debug_render_pass.draw(0..6 as u32, 0..1);
+        //
+        // drop(debug_render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

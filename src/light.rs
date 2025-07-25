@@ -16,7 +16,7 @@ pub struct Light {
 impl Light {
     pub fn new(pos: cgmath::Point3<f32>, color: primitives::Color) -> Self {
         let rotational_speed = 90.;
-        let paused = false;
+        let paused = true;
         Self {
             pos,
             color,

@@ -18,6 +18,7 @@ pub struct TexturePipelines {
 }
 
 pub struct ShadowPipeline(wgpu::RenderPipeline);
+pub struct DebugPipeline(wgpu::RenderPipeline);
 
 impl TexturePipelines {
     #[allow(clippy::too_many_arguments)]
@@ -350,6 +351,69 @@ impl ShadowPipeline {
     }
 }
 
+impl DebugPipeline {
+    const SHADER: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/shaders/debug_depth.wgsl"
+    ));
+
+    pub fn new(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        debug_layout: &resource::DebugTextureBindGroupLayout,
+    ) -> anyhow::Result<Self> {
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Debug Pipeline Layout"),
+            bind_group_layouts: &[debug_layout],
+            push_constant_ranges: &[],
+        });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("Debug Shader"),
+            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
+        };
+        let shader = device.create_shader_module(shader);
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Debug Pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0, // use all samples
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
+        Ok(Self(pipeline))
+    }
+}
+
 fn create_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
@@ -450,6 +514,14 @@ impl Deref for LightPipeline {
 }
 
 impl Deref for ShadowPipeline {
+    type Target = wgpu::RenderPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Deref for DebugPipeline {
     type Target = wgpu::RenderPipeline;
 
     fn deref(&self) -> &Self::Target {

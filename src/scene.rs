@@ -34,13 +34,14 @@ impl SceneState {
         let target_camera = camera::TargetCamera::new(pos, target, distance, frame);
         let first_person_camera = camera::FirstPersonCamera::new(pos, target - pos, frame);
 
-        let position = [2., 2., 2.].into();
+        // let light_pos = [2., 2., 2.].into();
+        let light_pos = pos;
         let color = primitives::Color {
             r: 1.,
             g: 1.,
             b: 1.,
         };
-        let light = light::Light::new(position, color);
+        let light = light::Light::new(light_pos, color);
         let last_time = std::time::Instant::now();
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -49,17 +50,7 @@ impl SceneState {
         let mesh_index = model_storage.load_mesh(&model_path).unwrap();
 
         let render_state = Rc::new(RefCell::new(
-            render::RenderState::create(
-                render_init,
-                &target_camera,
-                &light,
-                // material,
-                // &model.mesh,
-                // &instances,
-                // color_texture,
-                // normal_texture,
-            )
-            .unwrap(),
+            render::RenderState::create(render_init, &target_camera, &light).unwrap(),
         ));
 
         let mut manager = manager::DrawManager::new(Rc::clone(&render_state));

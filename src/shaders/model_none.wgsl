@@ -104,11 +104,16 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 }
 
 fn check_shadow(light_position: vec4<f32>) -> f32 {
-    let light_position1 = light_position.xyz / light_position.w;
-    let light_position2 = light_position1 * 0.5 + 0.5; // TODO: is this necessary?
+    if (light_position.w <= 0.0) {
+        return 0.0;
+    }
+    let corrected = light_position.xy / light_position.w;
+    let uv = corrected * vec2<f32>(.5, -.5) + vec2<f32>(.5, .5);
+    // let light_position1 = light_position.xyz / light_position.w;
 
-    let current_depth = light_position.z;
-    return textureSampleCompareLevel(t_shadow, s_shadow, light_position2.xy, current_depth);
+    let current_depth = light_position.z / light_position.w;
+    // return textureSampleCompareLevel(t_shadow, s_shadow, light_position1.xy, current_depth);
+    return 1. - textureSampleCompareLevel(t_shadow, s_shadow, uv, current_depth);
 }
 
 @fragment

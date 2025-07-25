@@ -153,11 +153,13 @@ impl DrawManager {
     }
 }
 
+#[derive(Clone)]
 pub struct DrawIterator<'a> {
     manager: &'a DrawManager,
     iterator: hash_map::Iter<'a, model::MaterialIndex, MaterialInfo>,
 }
 
+#[derive(Clone)]
 pub struct DrawMaterialIterator<'a> {
     manager: &'a DrawManager,
     material_info: &'a MaterialInfo,
