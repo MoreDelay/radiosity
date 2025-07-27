@@ -114,7 +114,7 @@ impl ApplicationHandler for App {
                 let (last_pos, drag) = match mouse.take() {
                     Some(MouseState::OnScreen { pos, drag }) => (pos, drag),
                     None | Some(MouseState::OutsideScreen { .. }) => {
-                        unreachable!("should have mouse on screen to get move event")
+                        return;
                     }
                 };
                 if drag {

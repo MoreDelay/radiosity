@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::render::resource::Texture;
 
-use super::{layout, resource};
+use super::{raw, resource};
 
 pub struct FlatScenePipeline(wgpu::RenderPipeline);
 pub struct ColorScenePipeline(wgpu::RenderPipeline);
@@ -126,7 +126,7 @@ impl FlatScenePipeline {
             &layout,
             color_format,
             Some(resource::Texture::DEPTH_FORMAT),
-            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
             shader,
             Some("FlatPipeline"),
         );
@@ -167,7 +167,7 @@ impl ColorScenePipeline {
             &layout,
             color_format,
             Some(resource::Texture::DEPTH_FORMAT),
-            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
             shader,
             Some("ColorPipeline"),
         );
@@ -208,7 +208,7 @@ impl NormalScenePipeline {
             &layout,
             color_format,
             Some(resource::Texture::DEPTH_FORMAT),
-            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
             shader,
             Some("NormalPipeline"),
         );
@@ -250,7 +250,7 @@ impl ColorNormalScenePipeline {
             &layout,
             color_format,
             Some(resource::Texture::DEPTH_FORMAT),
-            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
             shader,
             Some("ColorNormalPipeline"),
         );
@@ -284,7 +284,7 @@ impl LightPipeline {
             &layout,
             color_format,
             Some(resource::Texture::DEPTH_FORMAT),
-            &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
             shader,
             Some("Light Pipeline"),
         );
@@ -319,7 +319,7 @@ impl ShadowPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[layout::VertexRaw::desc(), layout::InstanceRaw::desc()],
+                buffers: &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: None,
@@ -339,69 +339,6 @@ impl ShadowPipeline {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0, // use all samples
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-        Ok(Self(pipeline))
-    }
-}
-
-impl DebugPipeline {
-    const SHADER: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/shaders/debug_depth.wgsl"
-    ));
-
-    pub fn new(
-        device: &wgpu::Device,
-        color_format: wgpu::TextureFormat,
-        debug_layout: &resource::DebugTextureBindGroupLayout,
-    ) -> anyhow::Result<Self> {
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Debug Pipeline Layout"),
-            bind_group_layouts: &[debug_layout],
-            push_constant_ranges: &[],
-        });
-        let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("Debug Shader"),
-            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
-        };
-        let shader = device.create_shader_module(shader);
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Debug Pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: color_format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0, // use all samples

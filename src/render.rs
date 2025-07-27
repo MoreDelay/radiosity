@@ -12,11 +12,11 @@ use crate::{
     render::resource::{ModelResourceStorage, TextureDims},
 };
 
-mod layout;
 mod pipeline;
+mod raw;
 mod resource;
 
-pub use layout::*;
+pub use raw::*;
 pub use resource::{InstanceBufferIndex, MaterialBindingIndex, MeshBufferIndex};
 
 #[derive(Copy, Clone, Debug)]
@@ -53,7 +53,6 @@ pub struct RenderState {
     depth_texture: resource::Texture,
     shadow_binding: resource::ShadowBinding,
     shadow_pipeline: pipeline::ShadowPipeline,
-    debug_pipeline: pipeline::DebugPipeline,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
     light_pipeline: pipeline::LightPipeline,
@@ -181,12 +180,10 @@ impl RenderState {
 
         let shadow_uniform_layout = resource::ShadowUniformBindGroupLayout::new(&device);
         let shadow_texture_layout = resource::ShadowTextureBindGroupLayout::new(&device);
-        let debug_texture_layout = resource::DebugTextureBindGroupLayout::new(&device);
         let shadow_binding = resource::ShadowBinding::new(
             &device,
             &shadow_uniform_layout,
             &shadow_texture_layout,
-            &debug_texture_layout,
             camera,
             Some("Shadow"),
         );
@@ -202,8 +199,6 @@ impl RenderState {
             &phong_layout,
         )?;
         let shadow_pipeline = pipeline::ShadowPipeline::new(&device, &camera_layout)?;
-        let debug_pipeline =
-            pipeline::DebugPipeline::new(&device, config.format, &debug_texture_layout)?;
 
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
@@ -223,7 +218,6 @@ impl RenderState {
             depth_texture,
             shadow_binding,
             shadow_pipeline,
-            debug_pipeline,
             phong_layout,
             camera_binding,
             light_binding,
