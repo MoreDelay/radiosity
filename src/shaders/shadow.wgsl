@@ -55,7 +55,7 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @builtin(frag_depth) f32 {
+fn fs_main(in: VertexOutput) -> @location(0) f32 {
     let dist = length(in.world_position - light.position);
     return dist / light.far_plane;
 }

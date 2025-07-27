@@ -259,7 +259,7 @@ impl ShadowTextureBindGroupLayout {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::Cube,
                         multisampled: false,
                     },
@@ -268,7 +268,7 @@ impl ShadowTextureBindGroupLayout {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                     count: None,
                 },
             ],
@@ -465,7 +465,7 @@ impl LightBinding {
 }
 
 impl ShadowBindings {
-    pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+    pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 
     pub fn new(
         device: &wgpu::Device,
@@ -476,7 +476,7 @@ impl ShadowBindings {
     ) -> Self {
         let TextureDims { width, height } = dims;
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: label.map(|s| format!("{s}-CubeTexture")).as_deref(),
+            label: label.map(|s| format!("{s}-ShadowCubeTexture")).as_deref(),
             size: wgpu::Extent3d {
                 width: width.get(),
                 height: height.get(),
@@ -494,24 +494,23 @@ impl ShadowBindings {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 100.0,
-            compare: Some(wgpu::CompareFunction::LessEqual),
-            // border_color: Some(wgpu::SamplerBorderColor::OpaqueWhite),
+            compare: None,
             ..Default::default()
         });
 
         let cube_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+            label: label.map(|s| format!("{s}-ShadowCubeView")).as_deref(),
             dimension: Some(wgpu::TextureViewDimension::Cube),
             ..Default::default()
         });
 
         let cube_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: label.map(|s| format!("{s}-CubeBind")).as_deref(),
+            label: label.map(|s| format!("{s}-ShadowCubeBind")).as_deref(),
             layout: &layouts.texture,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -530,7 +529,7 @@ impl ShadowBindings {
             .map(|proj| {
                 let proj: [[f32; 4]; 4] = proj.into();
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: label.map(|s| format!("{s}-Transform")).as_deref(),
+                    label: label.map(|s| format!("{s}-ShadowViewTransform")).as_deref(),
                     contents: bytemuck::cast_slice(&[proj]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 })
@@ -543,7 +542,7 @@ impl ShadowBindings {
             .iter()
             .map(|b| {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: label.map(|s| format!("{s}-Transform")).as_deref(),
+                    label: label.map(|s| format!("{s}-ShadowViewTransform")).as_deref(),
                     layout: &layouts.transform,
                     entries: &[wgpu::BindGroupEntry {
                         binding: 0,
@@ -557,42 +556,42 @@ impl ShadowBindings {
 
         let layer_views = [
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+                label: label.map(|s| format!("{s}-CubeView-0")).as_deref(),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: 0,
                 array_layer_count: Some(1),
                 ..Default::default()
             }),
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+                label: label.map(|s| format!("{s}-CubeView-1")).as_deref(),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: 1,
                 array_layer_count: Some(1),
                 ..Default::default()
             }),
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+                label: label.map(|s| format!("{s}-CubeView-2")).as_deref(),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: 2,
                 array_layer_count: Some(1),
                 ..Default::default()
             }),
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+                label: label.map(|s| format!("{s}-CubeView-3")).as_deref(),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: 3,
                 array_layer_count: Some(1),
                 ..Default::default()
             }),
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+                label: label.map(|s| format!("{s}-CubeView-4")).as_deref(),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: 4,
                 array_layer_count: Some(1),
                 ..Default::default()
             }),
             texture.create_view(&wgpu::TextureViewDescriptor {
-                label: label.map(|s| format!("{s}-CubeView")).as_deref(),
+                label: label.map(|s| format!("{s}-CubeView-5")).as_deref(),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: 5,
                 array_layer_count: Some(1),

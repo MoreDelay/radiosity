@@ -57,10 +57,9 @@ var<uniform> light: Light;
 var<uniform> phong: PhongInput;
 
 @group(3) @binding(0)
-var t_shadow: texture_depth_cube;
+var t_shadow: texture_cube<f32>;
 @group(3) @binding(1)
-var s_shadow: sampler_comparison;
-
+var s_shadow: sampler;
 
 
 @vertex
@@ -103,8 +102,9 @@ fn is_in_light(world_position: vec3<f32>) -> f32 {
     const bias: f32 = 0.00005;
     let dir = world_position - light.position;
     let dist = length(dir);
-    let depth = dist - bias;
-    return textureSampleCompareLevel(t_shadow, s_shadow, dir, depth);
+    let depth = dist / light.far_plane - bias;
+    let sample = textureSample(t_shadow, s_shadow, dir).r;
+    return select(1., 0., depth > sample);
 }
 
 @fragment
@@ -126,8 +126,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let in_light = is_in_light(in.world_position);
 
-    let result = ambient_color + (diffuse_color + specular_color) * in_light;
-    return vec4<f32>(result, 1.);
+    // let result = ambient_color + (diffuse_color + specular_color) * in_light;
+    // return vec4<f32>(result, 1.);
+
+    let dir = in.world_position - light.position;
+    let dist = length(dir);
+    let depth = dist / light.far_plane;
+    let sample = textureSample(t_shadow, s_shadow, dir).r;
+
+    // return vec4<f32>(depth, depth, depth, 1.);
+    return vec4<f32>(sample, sample, sample, 1.);
 }
 
 

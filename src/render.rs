@@ -302,15 +302,21 @@ impl RenderState {
         for (view, bind) in layer_views.iter().zip(transform_binds.iter()) {
             let mut shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Shadow RenderPass"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                    resolve_target: None, // used for multi-sampling
+                    ops: wgpu::Operations {
+                        // can skip clear if rendering will cover whole surface anyway
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 1.,
+                            g: 1.,
+                            b: 1.,
+                            a: 1.,
+                        }),
                         store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
+                    },
+                })],
+                depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
