@@ -19,6 +19,18 @@ mod resource;
 pub use raw::*;
 pub use resource::{InstanceBufferIndex, MaterialBindingIndex, MeshBufferIndex};
 
+// wgpu uses DirectX / Metal coordinates
+// there it is assumed that x,y are in range [-1., 1.] and z is in range of [0., 1.]
+// cgmath uses OpenGL coordinates that assumes [-1., 1.] for all axes
+// that means we need an affine transform to fix the z-axis
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.5,
+    0.0, 0.0, 0.0, 1.0,
+);
+
 #[derive(Copy, Clone, Debug)]
 pub enum PipelineMode {
     Flat,
@@ -50,8 +62,8 @@ pub struct RenderState {
     material_bindings: Vec<resource::MaterialBindings>,
     #[expect(unused)]
     instance_buffers: Vec<resource::InstanceBuffer>,
-    depth_texture: resource::Texture,
-    shadow_binding: resource::ShadowBinding,
+    depth_texture: resource::DepthTexture,
+    shadow_binding: resource::ShadowBindings,
     shadow_pipeline: pipeline::ShadowPipeline,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
@@ -163,8 +175,7 @@ impl RenderState {
             width: NonZeroU32::new(config.width.max(1)).unwrap(),
             height: NonZeroU32::new(config.height.max(1)).unwrap(),
         };
-        let depth_texture =
-            resource::Texture::create_depth(&device, depth_dims, Some("depth_texture"));
+        let depth_texture = resource::DepthTexture::new(&device, depth_dims, Some("depth_texture"));
 
         let texture_layout = resource::TextureBindGroupLayout::new(&device);
 
@@ -178,13 +189,16 @@ impl RenderState {
 
         let phong_layout = resource::PhongBindGroupLayout::new(&device);
 
-        let shadow_uniform_layout = resource::ShadowUniformBindGroupLayout::new(&device);
-        let shadow_texture_layout = resource::ShadowTextureBindGroupLayout::new(&device);
-        let shadow_binding = resource::ShadowBinding::new(
+        let dims = TextureDims {
+            width: NonZeroU32::new(1024).unwrap(),
+            height: NonZeroU32::new(1024).unwrap(),
+        };
+        let shadow_layout = resource::ShadowLayouts::new(&device);
+        let shadow_binding = resource::ShadowBindings::new(
             &device,
-            &shadow_uniform_layout,
-            &shadow_texture_layout,
-            camera,
+            &shadow_layout,
+            dims,
+            &light.to_raw(),
             Some("Shadow"),
         );
 
@@ -194,11 +208,11 @@ impl RenderState {
             &texture_layout,
             &camera_layout,
             &light_layout,
-            &shadow_uniform_layout,
-            &shadow_texture_layout,
+            &shadow_layout,
             &phong_layout,
         )?;
-        let shadow_pipeline = pipeline::ShadowPipeline::new(&device, &camera_layout)?;
+        let shadow_pipeline =
+            pipeline::ShadowPipeline::new(&device, &shadow_layout, &light_layout)?;
 
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
@@ -244,7 +258,7 @@ impl RenderState {
                 height: NonZeroU32::new(new_size.height).unwrap(),
             };
             self.depth_texture =
-                resource::Texture::create_depth(&self.device, dims, Some("depth_texture"));
+                resource::DepthTexture::new(&self.device, dims, Some("depth_texture"));
         }
     }
 
@@ -279,55 +293,62 @@ impl RenderState {
         // clear out window by writing a color
 
         // create shadow map
-        let mut shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Shadow RenderPass"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.shadow_binding.texture.view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
+        let resource::ShadowBindings {
+            transform_binds,
+            layer_views,
+            ..
+        } = &self.shadow_binding;
+
+        for (view, bind) in layer_views.iter().zip(transform_binds.iter()) {
+            let mut shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Shadow RenderPass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            occlusion_query_set: None,
-            timestamp_writes: None,
-        });
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
 
-        shadow_render_pass.set_pipeline(&self.shadow_pipeline);
-        shadow_render_pass.set_bind_group(0, &self.shadow_binding.uniform_bind_group, &[]);
+            shadow_render_pass.set_pipeline(&self.shadow_pipeline);
+            shadow_render_pass.set_bind_group(0, bind, &[]);
+            shadow_render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
 
-        for mesh_iter in mtl_iter.clone() {
-            for draw_slice in mesh_iter {
-                let DrawSlice {
-                    buffer_index,
-                    slice,
-                    instance_index,
-                    ..
-                } = draw_slice;
+            for mesh_iter in mtl_iter.clone() {
+                for draw_slice in mesh_iter {
+                    let DrawSlice {
+                        buffer_index,
+                        slice,
+                        instance_index,
+                        ..
+                    } = draw_slice;
 
-                let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
+                    let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
 
-                let instance_slice = if let Some(instance_index) = instance_index {
-                    let instances = self
-                        .model_resource_storage
-                        .get_instance_buffer(instance_index);
+                    let instance_slice = if let Some(instance_index) = instance_index {
+                        let instances = self
+                            .model_resource_storage
+                            .get_instance_buffer(instance_index);
 
-                    shadow_render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
-                    0..instances.num_instances
-                } else {
-                    0..1 // default to use when no instances are set, per wgpu docs
-                };
+                        shadow_render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
+                        0..instances.num_instances
+                    } else {
+                        0..1 // default to use when no instances are set, per wgpu docs
+                    };
 
-                shadow_render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                shadow_render_pass
-                    .set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                    shadow_render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+                    shadow_render_pass
+                        .set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
 
-                shadow_render_pass.draw_indexed(slice, 0, instance_slice);
+                    shadow_render_pass.draw_indexed(slice, 0, instance_slice);
+                }
             }
         }
-
-        drop(shadow_render_pass);
 
         // render models
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -381,44 +402,42 @@ impl RenderState {
                 match pipeline_mode {
                     PipelineMode::Flat => {
                         let pipeline = self.texture_pipelines.get_flat().deref();
-                        let uniform = &self.shadow_binding.uniform_bind_group;
-                        let texture = &self.shadow_binding.texture_bind_group;
+                        let texture = &self.shadow_binding.cube_bind;
                         render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, uniform, &[]);
-                        render_pass.set_bind_group(4, texture, &[]);
+                        render_pass.set_bind_group(3, texture, &[]);
                     }
                     PipelineMode::Color => {
                         let pipeline = self.texture_pipelines.get_color().deref();
-                        let color_bind_group = &material
+                        let color_bind_group = material
                             .color
                             .as_ref()
                             .expect("requested pipeline requires corresponding texture")
-                            .0;
+                            .deref();
                         render_pass.set_pipeline(pipeline);
                         render_pass.set_bind_group(3, color_bind_group, &[]);
                     }
                     PipelineMode::Normal => {
                         let pipeline = self.texture_pipelines.get_normal().deref();
-                        let normal_bind_group = &material
+                        let normal_bind_group = material
                             .normal
                             .as_ref()
                             .expect("requested pipeline requires corresponding texture")
-                            .0;
+                            .deref();
                         render_pass.set_pipeline(pipeline);
                         render_pass.set_bind_group(3, normal_bind_group, &[]);
                     }
                     PipelineMode::ColorNormal => {
                         let pipeline = self.texture_pipelines.get_color_normal().deref();
-                        let color_bind_group = &material
+                        let color_bind_group = material
                             .color
                             .as_ref()
                             .expect("requested pipeline requires corresponding texture")
-                            .0;
-                        let normal_bind_group = &material
+                            .deref();
+                        let normal_bind_group = material
                             .normal
                             .as_ref()
                             .expect("requested pipeline requires corresponding texture")
-                            .0;
+                            .deref();
                         render_pass.set_pipeline(pipeline);
                         render_pass.set_bind_group(3, color_bind_group, &[]);
                         render_pass.set_bind_group(4, normal_bind_group, &[]);
@@ -455,35 +474,6 @@ impl RenderState {
 
         // render pass recording ends when dropped
         drop(render_pass);
-
-        // let mut debug_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        //     label: Some("Debug RenderPass"),
-        //     color_attachments: &[
-        //         // target for fragment shader @location(0)
-        //         Some(wgpu::RenderPassColorAttachment {
-        //             view: &view,
-        //             resolve_target: None, // used for multi-sampling
-        //             ops: wgpu::Operations {
-        //                 // can skip clear if rendering will cover whole surface anyway
-        //                 load: wgpu::LoadOp::Clear(wgpu::Color {
-        //                     r: 0.1,
-        //                     g: 0.2,
-        //                     b: 0.3,
-        //                     a: 1.0,
-        //                 }),
-        //                 store: wgpu::StoreOp::Store,
-        //             },
-        //         }),
-        //     ],
-        //     depth_stencil_attachment: None,
-        //     occlusion_query_set: None,
-        //     timestamp_writes: None,
-        // });
-        // debug_render_pass.set_pipeline(&self.debug_pipeline);
-        // debug_render_pass.set_bind_group(0, &self.shadow_binding.debug_bind_group, &[]);
-        // debug_render_pass.draw(0..6 as u32, 0..1);
-        //
-        // drop(debug_render_pass);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();

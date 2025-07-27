@@ -41,6 +41,7 @@ struct Camera {
 
 struct Light {
     position: vec3<f32>,
+    far_plane: f32,
     color: vec3<f32>,
 }
 

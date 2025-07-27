@@ -8,6 +8,7 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub struct Light {
     pos: cgmath::Point3<f32>,
+    max_dist: f32,
     color: primitives::Color,
     rotational_speed: f32,
     paused: bool,
@@ -16,9 +17,11 @@ pub struct Light {
 impl Light {
     pub fn new(pos: cgmath::Point3<f32>, color: primitives::Color) -> Self {
         let rotational_speed = 90.;
+        let max_dist = 100.;
         let paused = true;
         Self {
             pos,
+            max_dist,
             color,
             rotational_speed,
             paused,
@@ -48,12 +51,17 @@ impl Light {
 impl GpuTransfer for Light {
     type Raw = LightRaw;
     fn to_raw(&self) -> Self::Raw {
-        let Self { pos, color, .. } = *self;
+        let Self {
+            pos,
+            color,
+            max_dist,
+            ..
+        } = *self;
         Self::Raw {
             position: pos.into(),
-            _padding: 0,
+            max_dist,
             color: color.into(),
-            _padding2: 0,
+            _padding: 0,
         }
     }
 }

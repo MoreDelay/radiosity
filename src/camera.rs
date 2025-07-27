@@ -138,29 +138,19 @@ impl TargetCamera {
         let view = cgmath::Matrix4::look_to_rh(self.pos, dir, self.up);
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
 
-        // wgpu uses DirectX / Metal coordinates
-        // there it is assumed that x,y are in range [-1., 1.] and z is in range of [0., 1.]
-        // cgmath uses OpenGL coordinates that assumes [-1., 1.] for all axes
-        // that means we need an affine transform to fix the z-axis
-        #[rustfmt::skip]
-        const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 0.5, 0.5,
-            0.0, 0.0, 0.0, 1.0,
-        );
-        OPENGL_TO_WGPU_MATRIX * proj * view
+        crate::render::OPENGL_TO_WGPU_MATRIX * proj * view
     }
 }
 
 impl GpuTransfer for TargetCamera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
-        let view_pos = self.pos.to_homogeneous().into();
+        let view_pos = self.pos.into();
         let view_proj = self.build_view_projection_matrix().into();
 
         Self::Raw {
             view_pos,
+            _padding: 0,
             view_proj,
         }
     }
@@ -289,11 +279,12 @@ impl FirstPersonCamera {
 impl GpuTransfer for FirstPersonCamera {
     type Raw = CameraRaw;
     fn to_raw(&self) -> Self::Raw {
-        let view_pos = self.pos.to_homogeneous().into();
+        let view_pos = self.pos.into();
         let view_proj = self.build_view_projection_matrix().into();
 
         Self::Raw {
             view_pos,
+            _padding: 0,
             view_proj,
         }
     }

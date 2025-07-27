@@ -6,9 +6,12 @@ use super::resource::Texture;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraRaw {
-    /// EXPECTS: any 4 values with last value != 0
-    pub view_pos: [f32; 4],
-    /// EXPECTS: any matrix in row-major with bottom right value != 0
+    /// EXPECTS: finite homogeneous position in right-handed coordinates (w != 0)
+    pub view_pos: [f32; 3],
+    // WGSL uniforms expect 4 float / 16 bytes alignment
+    // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
+    pub _padding: u32,
+    /// EXPECTS: column-major homogeneous transformation matrix
     pub view_proj: [[f32; 4]; 4],
 }
 impl private::RawLayout for CameraRaw {}
@@ -17,14 +20,15 @@ impl private::RawLayout for CameraRaw {}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightRaw {
-    /// EXPECTS: any 3 values
+    /// EXPECTS: position in right-handed coordinates
     pub position: [f32; 3],
+    /// EXPECT: far plane of light
+    pub max_dist: f32,
+    /// EXPECTS: rgb values in interval [0, 1]
+    pub color: [f32; 3],
     // WGSL uniforms expect 4 float / 16 bytes alignment
     // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
     pub _padding: u32,
-    /// EXPECTS: any 3 values in interval [0, 1]
-    pub color: [f32; 3],
-    pub _padding2: u32,
 }
 impl private::RawLayout for LightRaw {}
 
@@ -32,32 +36,42 @@ impl private::RawLayout for LightRaw {}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PhongRaw {
-    /// EXPECTS: values between 0 and 1.
+    /// EXPECTS: rgb values in interval [0, 1]
     pub specular_color: [f32; 3],
     pub specular_exponent: f32,
-    /// EXPECTS: values between 0 and 1.
+    /// EXPECTS: rgb values in interval [0, 1]
     pub diffuse_color: [f32; 3],
     // WGSL uniforms expect 4 float / 16 bytes alignment
     // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
     pub _padding1: u32,
-    /// EXPECTS: values between 0 and 1.
+    /// EXPECTS: rgb values in interval [0, 1]
     pub ambient_color: [f32; 3],
     pub _padding2: u32,
 }
 impl private::RawLayout for PhongRaw {}
 
+// /// Data format used to transfer light information to the GPU.
+// #[repr(C)]
+// #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+// pub struct CubeViewRaw {
+//     /// EXPECTS: column-major homogeneous transformation matrix
+//     pub view_proj: [[f32; 4]; 4],
+// }
+// impl private::RawLayout for CubeViewRaw {}
+
 /// Data format used to transfer information for a model vertex to the GPU.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VertexRaw {
+    /// EXPECTS: position in right-handed coordinates
     pub position: [f32; 3],
-    /// EXPECTS: any 2 values within interval [0, 1]
+    /// EXPECTS: uv coordinates into texture in interval [0, 1]
     pub tex_coords: [f32; 2],
-    /// EXPECTS: any 3-component vector v with |v| = 1
+    /// EXPECTS: surface normal of vector with unit length
     pub normal: [f32; 3],
-    /// EXPECTS: any 3-component vector v with |v| = 1 orthogonal to normal
+    /// EXPECTS: vector tangent to surface with unit length
     pub tangent: [f32; 3],
-    /// EXPECTS: any 3-component vector v with |v| = 1 orthogonal to normal and tangent
+    /// EXPECTS: vector tangent to surface with unit length and orthogonal to tangent
     pub bitangent: [f32; 3],
 }
 impl private::RawLayout for VertexRaw {}
@@ -66,23 +80,25 @@ impl private::RawLayout for VertexRaw {}
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
-    /// EXPECTS: any row-major matrix with bottom right != 0
+    /// EXPECTS: column-major homogeneous transformation matrix in world space
     pub model: [[f32; 4]; 4],
-    /// EXPECTS: same matrix as top left 3x3 matrix of `model`
+    /// EXPECTS: column-major rotation transformation matrix, 3x3 submatrix of `model`
     pub normal: [[f32; 3]; 3],
 }
 impl private::RawLayout for InstanceRaw {}
 
 /// Data format used to transfer an vertex buffer for triangles and its triangle indices to the GPU.
 pub struct TriangleBufferRaw {
+    /// EXPECTS: all vertices of a single mesh
     pub vertices: Box<[VertexRaw]>,
-    /// EXPECTS: `indices.len()` is a multiple of 3 and any element is smaller than `data.len()`.
+    /// EXPECTS: indices into vertices that define mesh with triangles, length is multiple of 3
     pub indices: Box<[u32]>,
 }
 impl private::RawLayout for TriangleBufferRaw {}
 
 /// Data format used to transfer an instance buffer to the GPU.
 pub struct InstanceBufferRaw {
+    /// EXPECTS: all instances to draw
     pub instances: Box<[InstanceRaw]>,
 }
 impl private::RawLayout for InstanceBufferRaw {}

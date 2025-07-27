@@ -24,7 +24,6 @@ struct VertexOutput {
     @location(2) tangent_position: vec3<f32>,
     @location(3) tangent_light_position: vec3<f32>,
     @location(4) tangent_view_position: vec3<f32>,
-    @location(5) light_position: vec4<f32>,
 }
 
 struct PhongInput {
@@ -41,6 +40,7 @@ struct Camera {
 
 struct Light {
     position: vec3<f32>,
+    far_plane: f32,
     color: vec3<f32>,
 }
 
@@ -57,11 +57,8 @@ var<uniform> light: Light;
 var<uniform> phong: PhongInput;
 
 @group(3) @binding(0)
-var<uniform> light_camera: Camera;
-
-@group(4) @binding(0)
-var t_shadow: texture_depth_2d;
-@group(4) @binding(1)
+var t_shadow: texture_depth_cube;
+@group(3) @binding(1)
 var s_shadow: sampler_comparison;
 
 
@@ -99,23 +96,15 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.tangent_position = tangent_matrix * world_position.xyz;
     out.tangent_view_position = tangent_matrix * camera.view_pos.xyz;
     out.tangent_light_position = tangent_matrix * light.position;
-    out.light_position = light_camera.view_proj * world_position;
     return out;
 }
 
-fn is_in_light(light_position: vec4<f32>) -> f32 {
-    if (light_position.w <= 0.0) {
-        return 1.0;
-    }
-    let corrected = light_position.xy / light_position.w;
-    let uv = corrected * vec2<f32>(.5, -.5) + vec2<f32>(.5, .5);
-    if (uv.x < 0.  || uv.x > 1. || uv.y < 0. || uv .y > 1.) {
-        return 1.0;
-    }
-
-    let bias = 0.00005;
-    let current_depth = light_position.z / light_position.w - bias;
-    return textureSampleCompareLevel(t_shadow, s_shadow, uv, current_depth);
+fn is_in_light(world_position: vec3<f32>) -> f32 {
+    const bias: f32 = 0.00005;
+    let dir = world_position - light.position;
+    let dist = length(dir);
+    let depth = dist - bias;
+    return textureSampleCompareLevel(t_shadow, s_shadow, dir, depth);
 }
 
 @fragment
@@ -135,7 +124,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let specular_strength = pow(max(dot(view_dir, reflect_dir), 0.0), phong.specular_exponent);
     let specular_color = specular_strength * phong.specular_color * light.color;
 
-    let in_light = is_in_light(in.light_position);
+    let in_light = is_in_light(in.world_position);
 
     let result = ambient_color + (diffuse_color + specular_color) * in_light;
     return vec4<f32>(result, 1.);
