@@ -65,6 +65,7 @@ pub struct RenderState {
     depth_texture: resource::DepthTexture,
     shadow_binding: resource::ShadowBindings,
     shadow_pipeline: pipeline::ShadowPipeline,
+    shadow_depth_texture: resource::DepthTexture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
     light_pipeline: pipeline::LightPipeline,
@@ -201,6 +202,8 @@ impl RenderState {
             &light.to_raw(),
             Some("Shadow"),
         );
+        let shadow_depth_texture =
+            resource::DepthTexture::new(&device, dims, Some("shadow_depth_texture"));
 
         let texture_pipelines = pipeline::TexturePipelines::new(
             &device,
@@ -232,6 +235,7 @@ impl RenderState {
             depth_texture,
             shadow_binding,
             shadow_pipeline,
+            shadow_depth_texture,
             phong_layout,
             camera_binding,
             light_binding,
@@ -264,6 +268,7 @@ impl RenderState {
 
     pub fn update_light<L: GpuTransfer<Raw = LightRaw>>(&self, data: &L) {
         self.light_binding.update(&self.queue, data);
+        self.shadow_binding.update(&self.queue, &data.to_raw());
     }
 
     pub fn update_camera<C: GpuTransfer<Raw = CameraRaw>>(&self, data: &C) {
@@ -316,7 +321,14 @@ impl RenderState {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_depth_texture.view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });

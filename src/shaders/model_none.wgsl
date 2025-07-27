@@ -99,12 +99,24 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
 }
 
 fn is_in_light(world_position: vec3<f32>) -> f32 {
-    const bias: f32 = 0.00005;
+    const bias: f32 = 0.005;
     let dir = world_position - light.position;
-    let dist = length(dir);
+    let cube_dir = vec3<f32>(dir.xy, -dir.z);
+    let dist = length(cube_dir);
     let depth = dist / light.far_plane - bias;
-    let sample = textureSample(t_shadow, s_shadow, dir).r;
+    let sample = textureSample(t_shadow, s_shadow, cube_dir).r;
     return select(1., 0., depth > sample);
+}
+
+fn face_index(dir: vec3<f32>) -> u32 {
+    let a = abs(dir);
+    if a.x >= a.y && a.x >= a.z {
+        return select(1u, 0u, dir.x > 0.0); // 0 = +X, 1 = -X
+    }
+    if a.y >= a.x && a.y >= a.z {
+        return select(3u, 2u, dir.y > 0.0); // 2 = +Y, 3 = -Y
+    }
+    return select(5u, 4u, dir.z > 0.0);     // 4 = +Z, 5 = -Z
 }
 
 @fragment
@@ -126,16 +138,29 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let in_light = is_in_light(in.world_position);
 
-    // let result = ambient_color + (diffuse_color + specular_color) * in_light;
-    // return vec4<f32>(result, 1.);
+    let result = ambient_color + (diffuse_color + specular_color) * in_light;
+    return vec4<f32>(result, 1.);
 
-    let dir = in.world_position - light.position;
-    let dist = length(dir);
-    let depth = dist / light.far_plane;
-    let sample = textureSample(t_shadow, s_shadow, dir).r;
+    // let dir = in.world_position - light.position;
+    // let cube_dir = vec3<f32>(dir.xy, -dir.z);
+    // let dist = length(cube_dir);
+    // let depth = dist / light.far_plane;
+    // let sample = textureSample(t_shadow, s_shadow, cube_dir).r;
 
     // return vec4<f32>(depth, depth, depth, 1.);
-    return vec4<f32>(sample, sample, sample, 1.);
+    // return vec4<f32>(sample, sample, sample, 1.);
+
+    // let face = face_index(cube_dir);
+    // let colors = array<vec3<f32>, 6>(
+    //     vec3<f32>(1.0, 0.0, 0.0), // +X
+    //     vec3<f32>(1.0, 1.0, 1.0), // -X
+    //     vec3<f32>(0.0, 1.0, 0.0), // +Y
+    //     vec3<f32>(0.5, 0.5, 0.5), // -Y
+    //     vec3<f32>(0.0, 0.0, 1.0), // +Z
+    //     vec3<f32>(0.0, 0.0, 0.0)  // -Z
+    // );
+    //
+    // return vec4<f32>(colors[face], 1.0);
 }
 
 

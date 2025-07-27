@@ -1,4 +1,5 @@
 use std::{
+    f32,
     num::{NonZeroU32, NonZeroU64},
     ops::Deref,
 };
@@ -610,7 +611,6 @@ impl ShadowBindings {
         }
     }
 
-    #[expect(unused)]
     pub fn update(&self, queue: &wgpu::Queue, light: &LightRaw) {
         let size = 4 * 4 * std::mem::size_of::<f32>();
         let size = NonZeroU64::new(size as u64).unwrap();
@@ -640,7 +640,8 @@ impl ShadowBindings {
         let up_pos_z = cgmath::Vector3::unit_y();
         let up_neg_z = cgmath::Vector3::unit_y();
 
-        let view = cgmath::perspective(cgmath::Deg(90.), 1., 0.1, light.max_dist);
+        // TODO: What is going on??? Why not 90 but 68???
+        let view = cgmath::perspective(cgmath::Deg(68.), 1., 0.1, light.max_dist);
         let pos = light.position.into();
         [
             OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_pos_x, up_pos_x),
