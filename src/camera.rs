@@ -61,7 +61,7 @@ impl TargetCamera {
 
         let FrameDim(width, height) = frame;
         let aspect = width as f32 / height as f32;
-        let fovy = 45.0;
+        let fovy = 75.0;
         let znear = 0.1;
         let zfar = 100.0;
 
@@ -136,9 +136,9 @@ impl TargetCamera {
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         let dir = self.target - self.pos;
         let view = cgmath::Matrix4::look_to_rh(self.pos, dir, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        crate::render::OPENGL_TO_WGPU_MATRIX * proj * view
+        let proj =
+            crate::math::perspective_projection(self.fovy, self.aspect, self.znear, self.zfar);
+        proj * view
     }
 }
 
@@ -164,7 +164,7 @@ impl FirstPersonCamera {
 
         let FrameDim(width, height) = frame;
         let aspect = width as f32 / height as f32;
-        let fovy = 45.0;
+        let fovy = 75.0;
         let znear = 0.1;
         let zfar = 100.0;
 
@@ -259,20 +259,9 @@ impl FirstPersonCamera {
 
     pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         let view = cgmath::Matrix4::look_to_rh(self.pos, self.dir, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        // wgpu uses DirectX / Metal coordinates
-        // there it is assumed that x,y are in range [-1., 1.] and z is in range of [0., 1.]
-        // cgmath uses OpenGL coordinates that assumes [-1., 1.] for all axes
-        // that means we need an affine transform to fix the z-axis
-        #[rustfmt::skip]
-        const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 0.5, 0.5,
-            0.0, 0.0, 0.0, 1.0,
-        );
-        OPENGL_TO_WGPU_MATRIX * proj * view
+        let proj =
+            crate::math::perspective_projection(self.fovy, self.aspect, self.znear, self.zfar);
+        proj * view
     }
 }
 

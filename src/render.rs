@@ -19,18 +19,6 @@ mod resource;
 pub use raw::*;
 pub use resource::{InstanceBufferIndex, MaterialBindingIndex, MeshBufferIndex};
 
-// wgpu uses DirectX / Metal coordinates
-// there it is assumed that x,y are in range [-1., 1.] and z is in range of [0., 1.]
-// cgmath uses OpenGL coordinates that assumes [-1., 1.] for all axes
-// that means we need an affine transform to fix the z-axis
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.5,
-    0.0, 0.0, 0.0, 1.0,
-);
-
 #[derive(Copy, Clone, Debug)]
 pub enum PipelineMode {
     Flat,

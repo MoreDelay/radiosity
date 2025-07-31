@@ -7,8 +7,6 @@ use std::{
 use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
 
-use crate::render::OPENGL_TO_WGPU_MATRIX;
-
 use super::{
     CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, PhongRaw,
     TriangleBufferRaw,
@@ -640,16 +638,15 @@ impl ShadowBindings {
         let up_pos_z = cgmath::Vector3::unit_y();
         let up_neg_z = cgmath::Vector3::unit_y();
 
-        // TODO: What is going on??? Why not 90 but 68???
-        let view = cgmath::perspective(cgmath::Deg(68.), 1., 0.1, light.max_dist);
         let pos = light.position.into();
+        let proj = crate::math::perspective_projection(90., 1., 0.1, light.max_dist);
         [
-            OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_pos_x, up_pos_x),
-            OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_neg_x, up_neg_x),
-            OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_pos_y, up_pos_y),
-            OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_neg_y, up_neg_y),
-            OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_pos_z, up_pos_z),
-            OPENGL_TO_WGPU_MATRIX * view * cgmath::Matrix4::look_to_rh(pos, dir_neg_z, up_neg_z),
+            proj * cgmath::Matrix4::look_to_rh(pos, dir_pos_x, up_pos_x),
+            proj * cgmath::Matrix4::look_to_rh(pos, dir_neg_x, up_neg_x),
+            proj * cgmath::Matrix4::look_to_rh(pos, dir_pos_y, up_pos_y),
+            proj * cgmath::Matrix4::look_to_rh(pos, dir_neg_y, up_neg_y),
+            proj * cgmath::Matrix4::look_to_rh(pos, dir_pos_z, up_pos_z),
+            proj * cgmath::Matrix4::look_to_rh(pos, dir_neg_z, up_neg_z),
         ]
     }
 }
