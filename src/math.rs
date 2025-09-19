@@ -2,6 +2,7 @@
 ///
 /// Convention: Camera at origin, looks along -z in a right-handed coordinate system
 /// Normalized Device Coordinates: Cube with corner points (-1, -1, 0) and (1, 1, 1)
+#[expect(clippy::deprecated_cfg_attr)]
 pub fn perspective_projection(
     fov_deg: f32,
     aspect_ratio: f32,

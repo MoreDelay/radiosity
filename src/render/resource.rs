@@ -19,7 +19,6 @@ pub struct TextureDims {
 }
 
 pub struct TextureBindGroupLayout(wgpu::BindGroupLayout);
-pub struct DebugTextureBindGroupLayout(wgpu::BindGroupLayout);
 
 pub struct CameraBindGroupLayout(wgpu::BindGroupLayout);
 pub struct LightBindGroupLayout(wgpu::BindGroupLayout);
@@ -812,14 +811,6 @@ impl ModelResourceStorage {
 }
 
 impl Deref for TextureBindGroupLayout {
-    type Target = wgpu::BindGroupLayout;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for DebugTextureBindGroupLayout {
     type Target = wgpu::BindGroupLayout;
 
     fn deref(&self) -> &Self::Target {

@@ -16,7 +16,6 @@ pub struct TexturePipelines {
 }
 
 pub struct ShadowPipeline(wgpu::RenderPipeline);
-pub struct DebugPipeline(wgpu::RenderPipeline);
 
 impl TexturePipelines {
     #[allow(clippy::too_many_arguments)]
@@ -445,14 +444,6 @@ impl Deref for LightPipeline {
 }
 
 impl Deref for ShadowPipeline {
-    type Target = wgpu::RenderPipeline;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for DebugPipeline {
     type Target = wgpu::RenderPipeline;
 
     fn deref(&self) -> &Self::Target {

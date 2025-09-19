@@ -293,6 +293,5 @@ mod private {
     pub trait RawLayout {}
     // Perhaps because only a single layout (`TextureRaw`) uses this constraint trait, it is
     // getting marked as unused. Keep it for future additions.
-    #[expect(unused)]
     pub trait RawLayoutRef<'a> {}
 }

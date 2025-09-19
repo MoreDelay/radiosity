@@ -108,20 +108,20 @@ impl SceneState {
     }
 
     pub fn resize_window(&mut self, new_size: Option<winit::dpi::PhysicalSize<u32>>) {
-        if let Some(winit::dpi::PhysicalSize { width, height }) = new_size {
-            if width > 0 && height > 0 {
-                let frame_size = camera::FrameDim(width, height);
-                self.target_camera.update_frame(frame_size);
-                self.first_person_camera.update_frame(frame_size);
-                if self.use_first_person_camera {
-                    self.render_state
-                        .borrow_mut()
-                        .update_camera(&self.first_person_camera);
-                } else {
-                    self.render_state
-                        .borrow_mut()
-                        .update_camera(&self.target_camera);
-                }
+        if let Some(winit::dpi::PhysicalSize { width, height }) = new_size
+            && (width > 0 && height > 0)
+        {
+            let frame_size = camera::FrameDim(width, height);
+            self.target_camera.update_frame(frame_size);
+            self.first_person_camera.update_frame(frame_size);
+            if self.use_first_person_camera {
+                self.render_state
+                    .borrow_mut()
+                    .update_camera(&self.first_person_camera);
+            } else {
+                self.render_state
+                    .borrow_mut()
+                    .update_camera(&self.target_camera);
             }
         }
 
