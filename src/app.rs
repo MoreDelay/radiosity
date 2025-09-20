@@ -9,6 +9,8 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use nalgebra as na;
+
 use crate::{camera, scene::SceneState};
 
 #[derive(Default)]
@@ -118,14 +120,8 @@ impl ApplicationHandler for App {
                     }
                 };
                 if drag {
-                    let from = cgmath::Point2 {
-                        x: last_pos.x as f32,
-                        y: last_pos.y as f32,
-                    };
-                    let to = cgmath::Point2 {
-                        x: pos.x as f32,
-                        y: pos.y as f32,
-                    };
+                    let from = na::Vector2::new(last_pos.x as f32, last_pos.y as f32);
+                    let to = na::Vector2::new(pos.x as f32, pos.y as f32);
                     let vec = to - from;
                     scene.drag_camera(vec);
                 }

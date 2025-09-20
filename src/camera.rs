@@ -1,4 +1,4 @@
-use cgmath::{ElementWise, EuclideanSpace, InnerSpace, Rotation, Rotation2, Rotation3};
+use nalgebra as na;
 
 use crate::render::{CameraRaw, GpuTransfer};
 
@@ -6,10 +6,10 @@ use crate::render::{CameraRaw, GpuTransfer};
 pub struct FrameDim(pub u32, pub u32);
 
 pub struct TargetCamera {
-    pos: cgmath::Point3<f32>,
-    target: cgmath::Point3<f32>,
+    pos: na::Vector3<f32>,
+    target: na::Vector3<f32>,
     distance: f32,
-    up: cgmath::Vector3<f32>,
+    up: na::Unit<na::Vector3<f32>>,
     aspect: f32,
     fovy: f32,
     znear: f32,
@@ -26,10 +26,10 @@ struct MovementState {
 }
 
 pub struct FirstPersonCamera {
-    pos: cgmath::Point3<f32>,
-    dir: cgmath::Vector3<f32>,
+    pos: na::Vector3<f32>,
+    dir: na::Unit<na::Vector3<f32>>,
     speed: f32,
-    up: cgmath::Vector3<f32>,
+    up: na::Vector3<f32>,
     aspect: f32,
     fovy: f32,
     znear: f32,
@@ -48,16 +48,16 @@ pub enum DirectionKey {
 
 impl TargetCamera {
     pub fn new(
-        pos: cgmath::Point3<f32>,
-        target: cgmath::Point3<f32>,
+        pos: na::Vector3<f32>,
+        target: na::Vector3<f32>,
         distance: f32,
         frame: FrameDim,
     ) -> Self {
-        let up = cgmath::Vector3::unit_y();
+        let up = na::Vector3::y_axis();
 
         let from_target = pos - target;
-        let pos = cgmath::Point3::from_vec(from_target.normalize() * distance);
-        let pos = pos.add_element_wise(target);
+        let pos = from_target.normalize() * distance;
+        let pos = pos + target;
 
         let FrameDim(width, height) = frame;
         let aspect = width as f32 / height as f32;
@@ -84,31 +84,31 @@ impl TargetCamera {
         self.aspect = width as f32 / height as f32;
     }
 
-    pub fn rotate(&mut self, movement: cgmath::Vector2<f32>) {
-        let rot90 = cgmath::Rad(0.5 * std::f32::consts::PI);
-        let rot90 = cgmath::Basis2::from_angle(rot90);
-        let cgmath::Vector2 { x, y } = rot90.rotate_vector(movement);
+    pub fn rotate(&mut self, movement: na::Vector2<f32>) {
+        let rot90 = std::f32::consts::FRAC_PI_2;
+        let rot90 = na::Rotation2::new(rot90);
+        let axis = rot90 * movement;
 
-        let forward = (self.target - self.pos).normalize();
-        let right = forward.cross(self.up).normalize();
-        let up = right.cross(forward);
+        let forward = na::Unit::new_normalize(self.target - self.pos);
+        let right = na::Unit::new_normalize(forward.cross(&self.up));
+        let up = na::Unit::new_normalize(right.cross(&forward));
 
         // image coordinate system starts at top left corner
         // and y gets bigger when going down, so we need to invert y
-        let rotation_axis = (x * right - y * up).normalize();
+        let rotation_axis = na::Unit::new_normalize(axis.x * *right - axis.y * *up);
 
-        let angle = cgmath::Rad(movement.magnitude()) / 100.;
-        let rotation = cgmath::Basis3::from_axis_angle(rotation_axis, angle);
+        let angle = movement.magnitude() / 100.;
+        let rotation = na::Rotation3::from_axis_angle(&rotation_axis, angle);
 
         // rotate around target, so move target to origin and back again
-        let pos = self.pos.sub_element_wise(self.target);
-        let pos = rotation.rotate_point(pos);
-        let pos = pos.add_element_wise(self.target);
+        let pos = self.pos - self.target;
+        let pos = rotation * pos;
+        let pos = pos + self.target;
 
         // correct for expected distance (precision errors, overshoot correction)
         let from_target = (pos - self.target).normalize();
-        let pos = cgmath::Point3::from_vec(from_target * self.distance);
-        let pos = pos.add_element_wise(self.target);
+        let pos = from_target * self.distance;
+        let pos = pos + self.target;
 
         self.pos = pos;
     }
@@ -118,9 +118,9 @@ impl TargetCamera {
         // use exponential / logarithmic scale for scolling
         self.distance = MIN_DISTANCE.max(self.distance - self.distance / 10.);
 
-        let from_target = self.pos - self.target;
-        let pos = cgmath::Point3::from_vec(from_target.normalize() * self.distance);
-        self.pos = pos.add_element_wise(self.target);
+        let from_target = na::Unit::new_normalize(self.pos - self.target);
+        let pos = *from_target * self.distance;
+        self.pos = pos + self.target;
     }
 
     pub fn go_away(&mut self) {
@@ -128,14 +128,17 @@ impl TargetCamera {
         // use exponential / logarithmic scale for scolling
         self.distance = MAX_DISTANCE.min(self.distance + self.distance / 10.);
 
-        let from_target = self.pos - self.target;
-        let pos = cgmath::Point3::from_vec(from_target.normalize() * self.distance);
-        self.pos = pos.add_element_wise(self.target);
+        let from_target = na::Unit::new_normalize(self.pos - self.target);
+        let pos = *from_target * self.distance;
+        self.pos = pos + self.target;
     }
 
-    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let dir = self.target - self.pos;
-        let view = cgmath::Matrix4::look_to_rh(self.pos, dir, self.up);
+    pub fn build_view_projection_matrix(&self) -> na::Matrix4<f32> {
+        let target = na::Vector3::new(self.target[0], self.target[1], self.target[2]);
+        let pos = na::Vector3::new(self.pos[0], self.pos[1], self.pos[2]);
+        let up = na::Vector3::new(self.up[0], self.up[1], self.up[2]);
+        let dir = (target - pos).normalize();
+        let view = crate::math::view_matrix(pos, crate::math::rotation_towards(dir, up));
         let proj =
             crate::math::perspective_projection(self.fovy, self.aspect, self.znear, self.zfar);
         proj * view
@@ -157,9 +160,8 @@ impl GpuTransfer for TargetCamera {
 }
 
 impl FirstPersonCamera {
-    pub fn new(pos: cgmath::Point3<f32>, dir: cgmath::Vector3<f32>, frame: FrameDim) -> Self {
-        let dir = dir.normalize();
-        let up = cgmath::Vector3::unit_y();
+    pub fn new(pos: na::Vector3<f32>, dir: na::Unit<na::Vector3<f32>>, frame: FrameDim) -> Self {
+        let up = na::Vector3::new(0., 1., 0.);
         let speed = 20.;
 
         let FrameDim(width, height) = frame;
@@ -227,38 +229,41 @@ impl FirstPersonCamera {
     }
 
     fn do_move(&mut self, direction: DirectionKey, distance: f32) {
-        let right = self.dir.cross(self.up).normalize();
+        let right = na::Unit::new_normalize(self.dir.cross(&self.up));
 
         let delta = match direction {
-            DirectionKey::W => self.dir * distance,
-            DirectionKey::A => -right * distance,
-            DirectionKey::S => -self.dir * distance,
-            DirectionKey::D => right * distance,
+            DirectionKey::W => *self.dir * distance,
+            DirectionKey::A => -*right * distance,
+            DirectionKey::S => -*self.dir * distance,
+            DirectionKey::D => *right * distance,
         };
 
         self.pos += delta;
     }
 
-    pub fn rotate(&mut self, movement: cgmath::Vector2<f32>) {
-        let rot90 = cgmath::Rad(0.5 * std::f32::consts::PI);
-        let rot90 = cgmath::Basis2::from_angle(rot90);
-        let cgmath::Vector2 { x, y } = rot90.rotate_vector(movement);
+    pub fn rotate(&mut self, movement: na::Vector2<f32>) {
+        let rot90 = std::f32::consts::FRAC_PI_2;
+        let rot90 = na::Rotation2::new(rot90);
+        let axis = rot90 * movement;
 
-        let right = self.dir.cross(self.up).normalize();
-        let up = right.cross(self.dir);
+        let right = na::Unit::new_normalize(self.dir.cross(&self.up));
+        let up = na::Unit::new_normalize(right.cross(&self.dir));
 
         // image coordinate system starts at top left corner
         // and y gets bigger when going down, so we need to invert y
-        let rotation_axis = (x * right - y * up).normalize();
+        let rotation_axis = na::Unit::new_normalize(axis.x * *right - axis.y * *up);
 
-        let angle = cgmath::Rad(movement.magnitude()) / 100.;
-        let rotation = cgmath::Basis3::from_axis_angle(rotation_axis, angle);
+        let angle = movement.magnitude() / 100.;
+        let rotation = na::Rotation3::from_axis_angle(&rotation_axis, angle);
 
-        self.dir = rotation.rotate_vector(self.dir).normalize();
+        self.dir = rotation * self.dir;
     }
 
-    pub fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_to_rh(self.pos, self.dir, self.up);
+    pub fn build_view_projection_matrix(&self) -> na::Matrix4<f32> {
+        let pos = na::Vector3::new(self.pos[0], self.pos[1], self.pos[2]);
+        let up = na::Vector3::new(self.up[0], self.up[1], self.up[2]);
+        let dir = na::Vector3::new(self.dir[0], self.dir[1], self.dir[2]);
+        let view = crate::math::view_matrix(pos, crate::math::rotation_towards(dir, up));
         let proj =
             crate::math::perspective_projection(self.fovy, self.aspect, self.znear, self.zfar);
         proj * view

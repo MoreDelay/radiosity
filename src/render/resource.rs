@@ -4,6 +4,8 @@ use std::{
     ops::Deref,
 };
 
+use nalgebra as na;
+
 use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
 
@@ -622,30 +624,43 @@ impl ShadowBindings {
         }
     }
 
-    fn create_projs(light: &LightRaw) -> [cgmath::Matrix4<f32>; 6] {
-        let dir_pos_x = cgmath::Vector3::unit_x();
-        let dir_neg_x = -cgmath::Vector3::unit_x();
-        let dir_pos_y = cgmath::Vector3::unit_y();
-        let dir_neg_y = -cgmath::Vector3::unit_y();
-        let dir_pos_z = -cgmath::Vector3::unit_z();
-        let dir_neg_z = cgmath::Vector3::unit_z();
+    fn create_projs(light: &LightRaw) -> [na::Matrix4<f32>; 6] {
+        let dir_pos_x = na::Vector3::new(1., 0., 0.);
+        let dir_neg_x = na::Vector3::new(-1., 0., 0.);
+        let dir_pos_y = na::Vector3::new(0., 1., 0.);
+        let dir_neg_y = na::Vector3::new(0., -1., 0.);
+        let dir_pos_z = na::Vector3::new(0., 0., -1.);
+        let dir_neg_z = na::Vector3::new(0., 0., 1.);
 
-        let up_pos_x = cgmath::Vector3::unit_y();
-        let up_neg_x = cgmath::Vector3::unit_y();
-        let up_pos_y = cgmath::Vector3::unit_z();
-        let up_neg_y = -cgmath::Vector3::unit_z();
-        let up_pos_z = cgmath::Vector3::unit_y();
-        let up_neg_z = cgmath::Vector3::unit_y();
+        let up_pos_x = na::Vector3::new(0., 1., 0.);
+        let up_neg_x = na::Vector3::new(0., 1., 0.);
+        let up_pos_y = na::Vector3::new(0., 0., 1.);
+        let up_neg_y = na::Vector3::new(0., 0., -1.);
+        let up_pos_z = na::Vector3::new(0., 1., 0.);
+        let up_neg_z = na::Vector3::new(0., 1., 0.);
 
         let pos = light.position.into();
+        let view_pos_x =
+            crate::math::view_matrix(pos, crate::math::rotation_towards(dir_pos_x, up_pos_x));
+        let view_neg_x =
+            crate::math::view_matrix(pos, crate::math::rotation_towards(dir_neg_x, up_neg_x));
+        let view_pos_y =
+            crate::math::view_matrix(pos, crate::math::rotation_towards(dir_pos_y, up_pos_y));
+        let view_neg_y =
+            crate::math::view_matrix(pos, crate::math::rotation_towards(dir_neg_y, up_neg_y));
+        let view_pos_z =
+            crate::math::view_matrix(pos, crate::math::rotation_towards(dir_pos_z, up_pos_z));
+        let view_neg_z =
+            crate::math::view_matrix(pos, crate::math::rotation_towards(dir_neg_z, up_neg_z));
+
         let proj = crate::math::perspective_projection(90., 1., 0.1, light.max_dist);
         [
-            proj * cgmath::Matrix4::look_to_rh(pos, dir_pos_x, up_pos_x),
-            proj * cgmath::Matrix4::look_to_rh(pos, dir_neg_x, up_neg_x),
-            proj * cgmath::Matrix4::look_to_rh(pos, dir_pos_y, up_pos_y),
-            proj * cgmath::Matrix4::look_to_rh(pos, dir_neg_y, up_neg_y),
-            proj * cgmath::Matrix4::look_to_rh(pos, dir_pos_z, up_pos_z),
-            proj * cgmath::Matrix4::look_to_rh(pos, dir_neg_z, up_neg_z),
+            proj * view_pos_x,
+            proj * view_neg_x,
+            proj * view_pos_y,
+            proj * view_neg_y,
+            proj * view_pos_z,
+            proj * view_neg_z,
         ]
     }
 }

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 
-use cgmath::{InnerSpace, Rotation3, Zero};
+use nalgebra as na;
 use winit::window::Window;
 
 use crate::{camera, light, model, primitives, render};
@@ -27,12 +27,13 @@ impl SceneState {
     pub fn new(window: Arc<Window>) -> Self {
         let render_init = pollster::block_on(render::RenderStateInit::new(window));
 
-        let pos: cgmath::Point3<f32> = (0.0, 4.0, 7.0).into();
-        let target: cgmath::Point3<f32> = (0.0, 0.0, 2.0).into();
+        let pos = na::Vector3::new(0.0, 4.0, 7.0);
+        let target = na::Vector3::new(0.0, 0.0, 2.0);
         let distance = 10.;
         let frame = render_init.get_frame_dim();
         let target_camera = camera::TargetCamera::new(pos, target, distance, frame);
-        let first_person_camera = camera::FirstPersonCamera::new(pos, target - pos, frame);
+        let direction = na::Unit::new_normalize(target - pos);
+        let first_person_camera = camera::FirstPersonCamera::new(pos, direction, frame);
 
         // let light_pos = [2., 2., 2.].into();
         let light_pos = pos;
@@ -62,14 +63,14 @@ impl SceneState {
                     let x = SPACE_BETWEEN * (x as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
                     let z = SPACE_BETWEEN * (z as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
 
-                    let position = cgmath::Vector3::new(x, 0.0, z);
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
+                    let position = na::Vector3::new(x, 0.0, z);
+                    let rotation = if position == na::Vector3::zeros() {
+                        na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.)
                     } else {
-                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                        na::UnitQuaternion::from_axis_angle(
+                            &na::Unit::new_normalize(position),
+                            std::f32::consts::FRAC_PI_8,
+                        )
                     };
                     model::Instance { position, rotation }
                 })
@@ -156,7 +157,7 @@ impl SceneState {
         }
     }
 
-    pub fn drag_camera(&mut self, movement: cgmath::Vector2<f32>) {
+    pub fn drag_camera(&mut self, movement: na::Vector2<f32>) {
         if self.use_first_person_camera {
             self.first_person_camera.rotate(movement);
             self.render_state

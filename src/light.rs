@@ -1,4 +1,4 @@
-use cgmath::{EuclideanSpace, Rotation3};
+use nalgebra as na;
 
 use crate::{
     primitives,
@@ -7,7 +7,7 @@ use crate::{
 
 #[derive(Debug, Copy, Clone)]
 pub struct Light {
-    pos: cgmath::Point3<f32>,
+    pos: na::Vector3<f32>,
     max_dist: f32,
     color: primitives::Color,
     rotational_speed: f32,
@@ -15,7 +15,7 @@ pub struct Light {
 }
 
 impl Light {
-    pub fn new(pos: cgmath::Point3<f32>, color: primitives::Color) -> Self {
+    pub fn new(pos: na::Vector3<f32>, color: primitives::Color) -> Self {
         let rotational_speed = 90.;
         let max_dist = 100.;
         let paused = true;
@@ -32,13 +32,11 @@ impl Light {
         if self.paused {
             return false;
         }
-        let rotational_distance = self.rotational_speed * epsilon;
-        let old_pos = self.pos.to_vec();
-        let new_pos = cgmath::Quaternion::from_axis_angle(
-            cgmath::Vector3::unit_y(),
-            cgmath::Deg(rotational_distance),
-        ) * old_pos;
-        self.pos = cgmath::Point3::from_vec(new_pos);
+        let angle = self.rotational_speed * epsilon;
+        let angle = angle * std::f32::consts::PI / 180.;
+        let axis = na::Vector3::<f32>::y_axis();
+        let rotation = na::Rotation3::from_axis_angle(&axis, angle);
+        self.pos = rotation * self.pos;
         true
     }
 

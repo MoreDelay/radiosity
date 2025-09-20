@@ -1,7 +1,7 @@
 use std::{ops::Deref, path::Path};
 
-use cgmath::{EuclideanSpace, InnerSpace, Zero};
 use image::ImageReader;
+use nalgebra as na;
 
 use crate::{
     model::parser::{mtl, obj},
@@ -35,8 +35,8 @@ struct ModelStorageInserter<'a> {
 
 #[derive(Copy, Clone, Debug)]
 pub struct Instance {
-    pub position: cgmath::Vector3<f32>,
-    pub rotation: cgmath::Quaternion<f32>,
+    pub position: na::Vector3<f32>,
+    pub rotation: na::UnitQuaternion<f32>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -213,14 +213,22 @@ impl Mesh {
 
         assert!(vertices.len() == normals.len());
 
+        struct TempVertex {
+            position: na::Vector3<f32>,
+            tex_coords: na::Vector2<f32>,
+            normal: na::Vector3<f32>,
+            tangent: na::Vector3<f32>,
+            bitangent: na::Vector3<f32>,
+        }
+
         let mut vertices = vertices
             .into_iter()
             .map(|obj::ObjV { x, y, z, .. }| {
-                let position = cgmath::Point3 { x, y, z };
-                let tex_coords = cgmath::Point2::origin();
-                let zero = cgmath::Vector3::zero();
+                let position = na::Vector3::new(x, y, z);
+                let tex_coords = na::Vector2::zeros();
+                let zero = na::Vector3::zeros();
 
-                Vertex {
+                TempVertex {
                     position,
                     tex_coords,
                     normal: zero,
@@ -237,24 +245,19 @@ impl Mesh {
                     continue;
                 };
                 let obj::ObjVn { i, j, k } = normals[i_normal];
-                let normal = cgmath::Vector3 { x: i, y: j, z: k }.normalize();
-                let unit = if (normal - cgmath::Vector3::unit_x()).magnitude() > 0.1 {
-                    cgmath::Vector3::unit_x()
+                let normal = na::Unit::new_normalize(na::Vector3::new(i, j, k));
+                let unit = if (*normal - *na::Vector3::x_axis()).magnitude() > 0.1 {
+                    na::Vector3::x_axis()
                 } else {
-                    cgmath::Vector3::unit_y()
+                    na::Vector3::y_axis()
                 };
-                let tangent = normal.cross(unit).normalize();
-                let bitangent = normal.cross(tangent);
+                let tangent = na::Unit::new_normalize(normal.cross(&unit));
+                let bitangent = na::Unit::new_normalize(normal.cross(&tangent));
 
-                vertices[i_vertex].normal = normal;
-                vertices[i_vertex].tangent = tangent;
-                vertices[i_vertex].bitangent = bitangent;
+                vertices[i_vertex].normal = *normal;
+                vertices[i_vertex].tangent = *tangent;
+                vertices[i_vertex].bitangent = *bitangent;
             }
-        }
-        for v in vertices.iter_mut() {
-            v.normal = v.normal.normalize();
-            v.tangent = v.tangent.normalize();
-            v.bitangent = v.bitangent.normalize();
         }
 
         // set texture coordinates and normals as specified by faces
@@ -270,17 +273,36 @@ impl Mesh {
                     let tex_coords = texture_coords[*index_texture];
                     let obj::ObjVt { u, v, w: _ } = tex_coords;
                     let vertex_tex = &mut vertices[*index_vertex].tex_coords;
-                    *vertex_tex = cgmath::Point2 { x: u, y: v };
+                    *vertex_tex = na::Vector2::new(u, v);
                 }
 
                 if let Some(index_normal) = index_normal {
                     let normal = normals[*index_normal];
                     let obj::ObjVn { i, j, k } = normal;
                     let vertex_normal = &mut vertices[*index_vertex].normal;
-                    *vertex_normal = cgmath::Vector3 { x: i, y: j, z: k };
+                    *vertex_normal = na::Vector3::new(i, j, k);
                 }
             }
         }
+
+        let vertices = vertices
+            .into_iter()
+            .map(
+                |TempVertex {
+                     position,
+                     tex_coords,
+                     normal,
+                     tangent,
+                     bitangent,
+                 }| Vertex {
+                    position,
+                    tex_coords,
+                    normal: na::Unit::new_normalize(normal),
+                    tangent: na::Unit::new_normalize(tangent),
+                    bitangent: na::Unit::new_normalize(bitangent),
+                },
+            )
+            .collect();
 
         // make all faces to triangles naively
         let triangles = faces
@@ -400,10 +422,10 @@ impl<'a> render::GpuTransferRef<'a> for NormalTexture {
 impl render::GpuTransfer for Instance {
     type Raw = render::InstanceRaw;
     fn to_raw(&self) -> Self::Raw {
-        let model = (cgmath::Matrix4::from_translation(self.position)
-            * cgmath::Matrix4::from(self.rotation))
-        .into();
-        let normal = cgmath::Matrix3::from(self.rotation).into();
+        let model = na::Translation::from(self.position) * self.rotation;
+        let model = model.to_matrix().into();
+        let normal = self.rotation.to_rotation_matrix();
+        let normal = normal.matrix().clone().into();
         render::InstanceRaw { model, normal }
     }
 }

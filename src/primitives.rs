@@ -3,13 +3,15 @@ use crate::{
     render::{GpuTransfer, VertexRaw},
 };
 
+use nalgebra as na;
+
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
-    pub position: cgmath::Point3<f32>,
-    pub tex_coords: cgmath::Point2<f32>,
-    pub normal: cgmath::Vector3<f32>,
-    pub tangent: cgmath::Vector3<f32>,
-    pub bitangent: cgmath::Vector3<f32>,
+    pub position: na::Vector3<f32>,
+    pub tex_coords: na::Vector2<f32>,
+    pub normal: na::UnitVector3<f32>,
+    pub tangent: na::UnitVector3<f32>,
+    pub bitangent: na::UnitVector3<f32>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -25,9 +27,9 @@ impl GpuTransfer for Vertex {
         VertexRaw {
             position: self.position.into(),
             tex_coords: self.tex_coords.into(),
-            normal: self.normal.into(),
-            tangent: self.tangent.into(),
-            bitangent: self.bitangent.into(),
+            normal: (*self.normal).into(),
+            tangent: (*self.tangent).into(),
+            bitangent: (*self.bitangent).into(),
         }
     }
 }
