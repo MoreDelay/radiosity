@@ -10,7 +10,7 @@ use nom::{
     bytes::streaming::{tag, take_until, take_while1},
     character::streaming::{i32 as parse_i32, line_ending, space1},
     combinator::opt,
-    multi::{fill, many_m_n, many1_count},
+    multi::{fill, many_m_n, many1, many1_count},
     number::streaming::float,
     sequence::{delimited, preceded},
 };
@@ -55,6 +55,11 @@ pub struct ObjF {
     pub triplets: Vec<ObjVertexTriplet>,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ObjG {
+    pub names: Vec<String>,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct ObjMtllib {
     pub name: String,
@@ -71,6 +76,11 @@ pub struct ObjMaterialSwitch {
     pub first_face: usize,
 }
 
+pub struct ObjGroupSwitch {
+    pub names: Vec<String>,
+    pub first_face: usize,
+}
+
 pub struct ParsedObj {
     pub vertices: Vec<ObjV>,
     pub texture_coords: Vec<ObjVt>,
@@ -81,10 +91,11 @@ pub struct ParsedObj {
 
 pub enum ObjLine {
     Empty,
-    GeometricVertex(ObjV),
-    TextureCoordinates(Result<ObjVt, ObjSpecError>),
-    VertexNormal(ObjVn),
-    FaceIndex(Result<ObjF, ObjSpecError>),
+    V(ObjV),
+    Vt(Result<ObjVt, ObjSpecError>),
+    Vn(ObjVn),
+    F(Result<ObjF, ObjSpecError>),
+    G(ObjG),
     MtlLib(ObjMtllib),
     UseMtl(ObjUsemtl),
 }
@@ -103,8 +114,6 @@ pub enum ObjError {
 
 #[derive(Error, Debug)]
 pub enum ObjSpecError {
-    #[error("a lerp value must be between 0 and 1, got {0}")]
-    InvalidLerpValue(f32),
     #[error("invalid list index, must be non-zero and expect between -{0} and {0}, got {1}")]
     InvalidListIndex(usize, i32),
     #[error(
@@ -138,7 +147,7 @@ fn obj_ignore(input: &str) -> IResult<&str, ()> {
     Ok((rest, ()))
 }
 
-fn obj_geometric_vertex(input: &str) -> IResult<&str, ObjV> {
+fn obj_v(input: &str) -> IResult<&str, ObjV> {
     let parser = (
         preceded(obj_whitespace, float),
         preceded(obj_whitespace, float),
@@ -153,47 +162,24 @@ fn obj_geometric_vertex(input: &str) -> IResult<&str, ObjV> {
     Ok((rest, vertex))
 }
 
-fn obj_lerp_range(input: &str) -> IResult<&str, Result<f32, ObjSpecError>> {
-    let (rest, value) = float.parse(input)?;
-    let valid = (0. ..=1.).contains(&value);
-
-    if valid {
-        Ok((rest, Ok(value)))
-    } else {
-        Ok((input, Err(ObjSpecError::InvalidLerpValue(value))))
-    }
-}
-
-fn obj_texture_coordinates(input: &str) -> IResult<&str, Result<ObjVt, ObjSpecError>> {
+fn obj_vt(input: &str) -> IResult<&str, Result<ObjVt, ObjSpecError>> {
     let parser = (
-        preceded(obj_whitespace, obj_lerp_range),
-        opt(preceded(obj_whitespace, obj_lerp_range)),
-        opt(preceded(obj_whitespace, obj_lerp_range)),
+        preceded(obj_whitespace, float),
+        opt(preceded(obj_whitespace, float)),
+        opt(preceded(obj_whitespace, float)),
     );
     let mut parser = delimited(tag("vt"), parser, obj_blank_line);
     let (rest, (u, v, w)) = parser.parse(input)?;
 
-    let u = match u {
-        Ok(value) => value,
-        Err(e) => return Ok((input, Err(e))),
-    };
-    let v = match v {
-        None => 0.,
-        Some(Ok(value)) => value,
-        Some(Err(e)) => return Ok((input, Err(e))),
-    };
-    let w = match w {
-        None => 0.,
-        Some(Ok(value)) => value,
-        Some(Err(e)) => return Ok((input, Err(e))),
-    };
+    let v = v.unwrap_or(0.);
+    let w = w.unwrap_or(0.);
 
     let vertex = ObjVt { u, v, w };
 
     Ok((rest, Ok(vertex)))
 }
 
-fn obj_vertex_normal(input: &str) -> IResult<&str, ObjVn> {
+fn obj_vn(input: &str) -> IResult<&str, ObjVn> {
     let mut normal = [0.; 3];
     let parse_numbers = fill(preceded(obj_whitespace, float), &mut normal);
     let mut parser = delimited(tag("vn"), parse_numbers, obj_blank_line);
@@ -301,7 +287,7 @@ fn obj_face_vtn(
     }
 }
 
-fn obj_face(
+fn obj_f(
     n_v: usize,
     n_t: usize,
     n_n: usize,
@@ -356,7 +342,7 @@ where
     }
 }
 
-fn obj_material_library(input: &str) -> IResult<&str, ObjMtllib> {
+fn obj_mtllib(input: &str) -> IResult<&str, ObjMtllib> {
     let parser = take_while1(|c: char| !c.is_whitespace());
     let parser = preceded(obj_whitespace, parser);
     let mut parser = delimited(tag("mtllib"), parser, obj_blank_line);
@@ -367,7 +353,19 @@ fn obj_material_library(input: &str) -> IResult<&str, ObjMtllib> {
     Ok((input, mtllib))
 }
 
-fn obj_material_use(input: &str) -> IResult<&str, ObjUsemtl> {
+fn obj_g(input: &str) -> IResult<&str, ObjG> {
+    let parser = take_while1(|c: char| !c.is_whitespace());
+    let parser = preceded(obj_whitespace, parser);
+    let parser = many1(parser);
+    let mut parser = delimited(tag("g"), parser, obj_blank_line);
+
+    let (input, names) = parser.parse(input)?;
+    let names = names.into_iter().map(String::from).collect();
+    let group = ObjG { names };
+    Ok((input, group))
+}
+
+fn obj_usemtl(input: &str) -> IResult<&str, ObjUsemtl> {
     let parser = take_while1(|c: char| !c.is_whitespace());
     let parser = preceded(obj_whitespace, parser);
     let mut parser = delimited(tag("usemtl"), parser, obj_blank_line);
@@ -386,12 +384,13 @@ fn obj_line(
     move |i: &str| {
         alt((
             obj_blank_line.map(|_| ObjLine::Empty),
-            obj_geometric_vertex.map(ObjLine::GeometricVertex),
-            obj_texture_coordinates.map(ObjLine::TextureCoordinates),
-            obj_vertex_normal.map(ObjLine::VertexNormal),
-            obj_face(n_vertices, n_textures, n_normals).map(ObjLine::FaceIndex),
-            obj_material_library.map(ObjLine::MtlLib),
-            obj_material_use.map(ObjLine::UseMtl),
+            obj_v.map(ObjLine::V),
+            obj_vt.map(ObjLine::Vt),
+            obj_vn.map(ObjLine::Vn),
+            obj_f(n_vertices, n_textures, n_normals).map(ObjLine::F),
+            obj_mtllib.map(ObjLine::MtlLib),
+            obj_g.map(ObjLine::G),
+            obj_usemtl.map(ObjLine::UseMtl),
             obj_ignore.map(|_| ObjLine::Empty),
         ))
         .parse(i)
@@ -411,6 +410,7 @@ pub fn load_obj(
     let mut normals = Vec::new();
     let mut faces = Vec::new();
     let mut material_switches = Vec::new();
+    let mut group_switches = Vec::new();
 
     // let mut materials = Vec::new();
     let mut material_names = Vec::new();
@@ -434,17 +434,19 @@ pub fn load_obj(
 
             match line {
                 ObjLine::Empty => (),
-                ObjLine::GeometricVertex(obj_v) => vertices.push(obj_v),
-                ObjLine::TextureCoordinates(obj_vt) => {
-                    texture_coords.push(obj_vt.map_err(map_spec_err)?)
-                }
-                ObjLine::VertexNormal(obj_vn) => normals.push(obj_vn),
-                ObjLine::FaceIndex(obj_f) => faces.push(obj_f.map_err(map_spec_err)?),
+                ObjLine::V(obj_v) => vertices.push(obj_v),
+                ObjLine::Vt(obj_vt) => texture_coords.push(obj_vt.map_err(map_spec_err)?),
+                ObjLine::Vn(obj_vn) => normals.push(obj_vn),
+                ObjLine::F(obj_f) => faces.push(obj_f.map_err(map_spec_err)?),
                 ObjLine::MtlLib(ObjMtllib { name }) => {
                     let found_names = mtl_manager
                         .request_mtl_load(&name)
                         .map_err(ObjError::FromMtl)?;
                     material_names.extend(found_names);
+                }
+                ObjLine::G(ObjG { names }) => {
+                    let first_face = faces.len();
+                    group_switches.push(ObjGroupSwitch { names, first_face });
                 }
                 ObjLine::UseMtl(ObjUsemtl { name }) => {
                     let valid_name = material_names.iter().any(|old| &name == old);
@@ -463,6 +465,10 @@ pub fn load_obj(
                 }
             };
         }
+    }
+
+    if !normals.is_empty() {
+        assert_eq!(vertices.len(), normals.len());
     }
 
     let parsed_obj = ParsedObj {
@@ -495,7 +501,7 @@ mod tests {
     #[test]
     fn test_obj_geometric_vertex() {
         let input = "v 1.1   2.2   3.3 # this is a comment\n";
-        let (rest, vec) = obj_geometric_vertex(input).unwrap();
+        let (rest, vec) = obj_v(input).unwrap();
         let expected = ObjV {
             x: 1.1,
             y: 2.2,
@@ -509,7 +515,7 @@ mod tests {
     #[test]
     fn test_obj_texture_coordinates() {
         let input = "vt 1.0   0.2   0.3 # this is a comment\n";
-        let (rest, vec) = obj_texture_coordinates(input).unwrap();
+        let (rest, vec) = obj_vt(input).unwrap();
         let vec = vec.unwrap();
         let expected = ObjVt {
             u: 1.0,
@@ -523,14 +529,14 @@ mod tests {
     #[test]
     fn test_obj_texture_coordinates_fail() {
         let input = "vt 1.1   2.2   3.3 # this is a comment\n";
-        let out = obj_texture_coordinates(input);
+        let out = obj_vt(input);
         assert!(out.is_err());
     }
 
     #[test]
     fn test_obj_vertex_normal() {
         let input = "vn 1.1   2.2   3.3 # this is a comment\n";
-        let (rest, vec) = obj_vertex_normal(input).unwrap();
+        let (rest, vec) = obj_vn(input).unwrap();
         let expected = ObjVn {
             i: 1.1,
             j: 2.2,
@@ -543,7 +549,7 @@ mod tests {
     #[test]
     fn test_obj_face_element() {
         let input = "f -4/1/1   2/-3/2   3/3/-2 # this is a comment\n";
-        let (rest, vec) = obj_face(4, 4, 4).parse(input).unwrap();
+        let (rest, vec) = obj_f(4, 4, 4).parse(input).unwrap();
         let vec = vec.unwrap();
         let expected = ObjF {
             triplets: vec![
@@ -571,7 +577,7 @@ mod tests {
     #[test]
     fn test_obj_face_element_fail() {
         let input = "f 1//1   2//2   3/3/3 # this is a comment\n";
-        let out = obj_face(4, 4, 4)(input);
+        let out = obj_f(4, 4, 4)(input);
         assert!(out.is_err());
     }
 

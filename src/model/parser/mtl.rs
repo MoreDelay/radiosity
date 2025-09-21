@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::File,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -12,7 +13,7 @@ use nom::{
     combinator::opt,
     multi::many1,
     number::streaming::float,
-    sequence::{delimited, preceded, terminated},
+    sequence::{delimited, preceded},
 };
 
 use thiserror::Error;
@@ -69,11 +70,32 @@ pub struct MtlTr(pub f32);
 #[derive(Debug, Clone, Copy)]
 pub struct MtlNs(pub f32);
 
+#[derive(Debug, Clone, Copy)]
+pub enum MtlTransparency {
+    None,
+    Glass,
+    Refraction,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MtlReflection {
+    Simple,
+    RayTrace,
+    FresnelAndRayTrace,
+}
+
+#[expect(unused)]
 #[derive(Debug, Clone, Copy, Default)]
 pub enum MtlIllum {
     Flat,
+    Ambient,
     #[default]
     Specular,
+    SpecialMode {
+        transparency: MtlTransparency,
+        reflection: MtlReflection,
+    },
+    InvisibleSurfaceShadows,
 }
 
 #[expect(unused)]
@@ -99,6 +121,8 @@ pub struct ParsedMtl {
     // from here on come inofficial fields that are not defined in the official spec
     pub map_bump: Option<MtlMapBump>,
     pub map_kd: Option<MtlMapKd>,
+    // collect other fields just in case
+    pub unknown: HashMap<String, String>,
 }
 
 impl Default for MtlKa {
@@ -151,6 +175,7 @@ impl ParsedMtl {
             map_ka: None,
             map_bump: None,
             map_kd: None,
+            unknown: HashMap::new(),
         }
     }
 
@@ -184,6 +209,9 @@ impl ParsedMtl {
             MapKa(map_ka) if self.map_ka.is_none() => self.map_ka = Some(map_ka),
             MapKd(map_kd) if self.map_kd.is_none() => self.map_kd = Some(map_kd),
             MapBump(map_bump) if self.map_bump.is_none() => self.map_bump = Some(map_bump),
+            Unknown(key, value) if !self.unknown.contains_key(&key) => {
+                self.unknown.insert(key, value);
+            }
             _ => return Err(MtlSpecError::DoubleField),
         };
         Ok(())
@@ -202,6 +230,7 @@ enum MtlProperty {
     MapKa(MtlMapKa),
     MapBump(MtlMapBump),
     MapKd(MtlMapKd),
+    Unknown(String, String),
 }
 
 #[derive(Debug)]
@@ -298,8 +327,38 @@ fn mtl_ns(input: &str) -> IResult<&str, Result<MtlProperty, MtlSpecError>> {
 
 fn mtl_illum(input: &str) -> IResult<&str, Result<MtlProperty, MtlSpecError>> {
     let illum = parse_u32.map(|v| match v {
-        1 => Ok(MtlProperty::Illum(MtlIllum::Flat)),
+        0 => Ok(MtlProperty::Illum(MtlIllum::Flat)),
+        1 => Ok(MtlProperty::Illum(MtlIllum::Ambient)),
         2 => Ok(MtlProperty::Illum(MtlIllum::Specular)),
+        3 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::None,
+            reflection: MtlReflection::RayTrace,
+        })),
+        4 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::Glass,
+            reflection: MtlReflection::RayTrace,
+        })),
+        5 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::None,
+            reflection: MtlReflection::FresnelAndRayTrace,
+        })),
+        6 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::Refraction,
+            reflection: MtlReflection::RayTrace,
+        })),
+        7 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::Refraction,
+            reflection: MtlReflection::FresnelAndRayTrace,
+        })),
+        8 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::None,
+            reflection: MtlReflection::Simple,
+        })),
+        9 => Ok(MtlProperty::Illum(MtlIllum::SpecialMode {
+            transparency: MtlTransparency::Glass,
+            reflection: MtlReflection::Simple,
+        })),
+        10 => Ok(MtlProperty::Illum(MtlIllum::InvisibleSurfaceShadows)),
         v => Err(MtlSpecError::InvalidIllum(v)),
     });
     preceded((tag("illum"), mtl_whitespace), illum).parse(input)
@@ -323,9 +382,18 @@ fn mtl_map_bump(input: &str) -> IResult<&str, MtlProperty> {
     preceded((tag("map_Bump"), mtl_whitespace), parser).parse(input)
 }
 
-fn mtl_ignore(input: &str) -> IResult<&str, ()> {
-    let parser = alt((tag("Ke"), tag("Ni"))).map(|_| ());
-    terminated(parser, take_until("\n")).parse(input)
+fn mtl_unknown(input: &str) -> IResult<&str, MtlProperty> {
+    let mut key = take_while1(|c: char| !c.is_whitespace());
+    let mut value = many1(preceded(
+        mtl_whitespace,
+        take_while1(|c: char| !c.is_whitespace()),
+    ));
+    let (rest, key) = key.parse(input)?;
+    let (rest, value) = value.parse(rest)?;
+    Ok((
+        rest,
+        MtlProperty::Unknown(String::from(key), value.join(" ")),
+    ))
 }
 
 pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
@@ -340,7 +408,7 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
     while reader.read_line(&mut buffer)? > 0 {
         line_index += 1;
         loop {
-            let mut parser = alt((
+            let parser = alt((
                 mtl_blank_line.map(|_| MtlLine::Empty),
                 mtl_newmtl.map(MtlLine::Newmtl),
                 mtl_ka.map(MtlLine::Property),
@@ -353,13 +421,15 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
                 mtl_map_ka.map(|v| MtlLine::Property(Ok(v))),
                 mtl_map_bump.map(|v| MtlLine::Property(Ok(v))),
                 mtl_map_kd.map(|v| MtlLine::Property(Ok(v))),
-                mtl_ignore.map(|_| MtlLine::Empty),
+                mtl_unknown.map(|v| MtlLine::Property(Ok(v))),
             ));
+            let mut parser = preceded(opt(mtl_whitespace), parser);
             let (rest, line) = match parser.parse(&buffer) {
                 Ok((rest, line)) => (rest, line),
                 Err(nom::Err::Incomplete(_)) => break,
                 Err(_) => return Err(MtlError::WrongFormat(path.to_path_buf(), line_index)),
             };
+            drop(parser);
             let offset = buffer.offset(rest);
             buffer = buffer.split_off(offset);
 

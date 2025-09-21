@@ -46,7 +46,7 @@ impl SceneState {
         let last_time = std::time::Instant::now();
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let model_path = root.join("resources/cube/cube.obj");
+        let model_path = root.join("resources/sibenik/sibenik.obj");
         let mut model_storage = model::ModelStorage::new();
         let mesh_index = model_storage.load_mesh(&model_path).unwrap();
 
