@@ -106,29 +106,30 @@ impl DrawManager {
 
         let mut face_start = 0;
         let mut last_material = None;
-        for switch in mesh.material_switches.iter() {
-            let &model::MaterialSwitch {
-                first_face: face_end,
-                material,
-            } = switch;
-            let face_end = face_end as u32;
-
-            let label = label.map(|l| format!("{l}-Material"));
-            self.add_material(storage, material, label.as_deref());
-
-            if face_start != face_end {
-                let slice = FaceIndexSlice(face_start * 3..face_end * 3);
-                let subscription = MaterialSubscription { slice, mesh_index };
-                let material_info = self
-                    .materials
-                    .get_mut(&material)
-                    .expect("made sure it exists before");
-                material_info
-                    .subscribed_meshes
-                    .insert(mesh_info_index, subscription);
-            }
-            face_start = face_end;
-            last_material = Some(material);
+        for switch in mesh.mtl_slices.iter() {
+            todo!();
+            // let &model::MaterialSlice {
+            //     first_face: face_end,
+            //     material,
+            // } = switch;
+            // let face_end = face_end as u32;
+            //
+            // let label = label.map(|l| format!("{l}-Material"));
+            // self.add_material(storage, material, label.as_deref());
+            //
+            // if face_start != face_end {
+            //     let slice = FaceIndexSlice(face_start * 3..face_end * 3);
+            //     let subscription = MaterialSubscription { slice, mesh_index };
+            //     let material_info = self
+            //         .materials
+            //         .get_mut(&material)
+            //         .expect("made sure it exists before");
+            //     material_info
+            //         .subscribed_meshes
+            //         .insert(mesh_info_index, subscription);
+            // }
+            // face_start = face_end;
+            // last_material = Some(material);
         }
 
         let material = last_material.expect("we did at least one iteration to set material");

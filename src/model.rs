@@ -1,4 +1,7 @@
-use std::{ops::Deref, path::Path};
+use std::{
+    ops::{Deref, Range},
+    path::Path,
+};
 
 use image::ImageReader;
 use nalgebra as na;
@@ -64,15 +67,15 @@ pub struct Material {
     pub normal_texture: Option<NormalTexture>,
 }
 
-pub struct MaterialSwitch {
-    pub first_face: usize,
+pub struct MaterialSlice {
+    pub slice: Range<usize>,
     pub material: MaterialIndex,
 }
 
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub triangles: Vec<Triplet>,
-    pub material_switches: Vec<MaterialSwitch>,
+    pub mtl_slices: Vec<MaterialSlice>,
 }
 
 impl ModelStorage {
@@ -94,28 +97,29 @@ impl ModelStorage {
     }
 
     pub fn load_mesh(&mut self, path: &Path) -> anyhow::Result<MeshIndex> {
-        let name = path.file_stem().unwrap().to_string_lossy().to_string();
-        let already_loaded = self
-            .meshes
-            .iter()
-            .enumerate()
-            .find_map(|(i, (n, _))| (n == &name).then_some(i));
-        if let Some(index) = already_loaded {
-            return Ok(MeshIndex { index });
-        }
-
-        let mut inserter = ModelStorageInserter {
-            root_dir: path.parent().expect("file should have a parent directory"),
-            storage: self,
-        };
-
-        let loaded_obj = obj::load_obj(path, &mut inserter)?;
-        let mesh = Mesh::new(loaded_obj);
-
-        let mesh_index = self.meshes.len();
-
-        self.meshes.push((name, mesh));
-        Ok(MeshIndex { index: mesh_index })
+        // let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        // let already_loaded = self
+        //     .meshes
+        //     .iter()
+        //     .enumerate()
+        //     .find_map(|(i, (n, _))| (n == &name).then_some(i));
+        // if let Some(index) = already_loaded {
+        //     return Ok(MeshIndex { index });
+        // }
+        //
+        // let mut inserter = ModelStorageInserter {
+        //     root_dir: path.parent().expect("file should have a parent directory"),
+        //     storage: self,
+        // };
+        //
+        // let loaded_obj = obj::load_obj(path, &mut inserter)?;
+        // let mesh = Mesh::new(loaded_obj);
+        //
+        // let mesh_index = self.meshes.len();
+        //
+        // self.meshes.push((name, mesh));
+        // Ok(MeshIndex { index: mesh_index })
+        todo!()
     }
 }
 
@@ -202,16 +206,15 @@ impl Material {
 }
 
 impl Mesh {
-    fn new(parsed_obj: obj::ParsedObj) -> Self {
+    fn new(parsed_obj: obj::ParsedObj) -> Vec<Self> {
         let obj::ParsedObj {
-            vertices,
-            texture_coords,
-            normals,
-            faces,
-            material_switches,
+            geo_vertices,
+            tex_vertices,
+            vertex_normals,
+            objects,
         } = parsed_obj;
 
-        assert!(vertices.len() == normals.len());
+        assert!(geo_vertices.len() == vertex_normals.len());
 
         struct TempVertex {
             position: na::Vector3<f32>,
@@ -221,9 +224,9 @@ impl Mesh {
             bitangent: na::Vector3<f32>,
         }
 
-        let mut vertices = vertices
+        let mut vertices = geo_vertices
             .into_iter()
-            .map(|obj::ObjV { x, y, z, .. }| {
+            .map(|obj::V { x, y, z, .. }| {
                 let position = na::Vector3::new(x, y, z);
                 let tex_coords = na::Vector2::zeros();
                 let zero = na::Vector3::zeros();
@@ -238,52 +241,80 @@ impl Mesh {
             })
             .collect::<Vec<_>>();
 
-        for face in faces.iter() {
-            for triplet in face.triplets.iter() {
-                let i_vertex = triplet.index_vertex;
-                let Some(i_normal) = triplet.index_normal else {
-                    continue;
-                };
-                let obj::ObjVn { i, j, k } = normals[i_normal];
-                let normal = na::Unit::new_normalize(na::Vector3::new(i, j, k));
-                let unit = if (*normal - *na::Vector3::x_axis()).magnitude() > 0.1 {
-                    na::Vector3::x_axis()
-                } else {
-                    na::Vector3::y_axis()
-                };
-                let tangent = na::Unit::new_normalize(normal.cross(&unit));
-                let bitangent = na::Unit::new_normalize(normal.cross(&tangent));
+        let meshes = objects
+            .into_iter()
+            .map(|object| {
+                for face in object.faces.iter() {
+                    for triplet in face.triplets.iter() {
+                        let i_vertex = triplet.index_vertex;
+                        let Some(i_normal) = triplet.index_normal else {
+                            continue;
+                        };
+                        let obj::Vn { i, j, k } = vertex_normals[i_normal];
+                        let normal = na::Unit::new_normalize(na::Vector3::new(i, j, k));
+                        let unit = if (*normal - *na::Vector3::x_axis()).magnitude() > 0.1 {
+                            na::Vector3::x_axis()
+                        } else {
+                            na::Vector3::y_axis()
+                        };
+                        let tangent = na::Unit::new_normalize(normal.cross(&unit));
+                        let bitangent = na::Unit::new_normalize(normal.cross(&tangent));
 
-                vertices[i_vertex].normal = *normal;
-                vertices[i_vertex].tangent = *tangent;
-                vertices[i_vertex].bitangent = *bitangent;
-            }
-        }
-
-        // set texture coordinates and normals as specified by faces
-        for face in faces.iter() {
-            for triplet in face.triplets.iter() {
-                let obj::ObjVertexTriplet {
-                    index_vertex,
-                    index_texture,
-                    index_normal,
-                } = triplet;
-
-                if let Some(index_texture) = index_texture {
-                    let tex_coords = texture_coords[*index_texture];
-                    let obj::ObjVt { u, v, w: _ } = tex_coords;
-                    let vertex_tex = &mut vertices[*index_vertex].tex_coords;
-                    *vertex_tex = na::Vector2::new(u, v);
+                        vertices[i_vertex].normal = *normal;
+                        vertices[i_vertex].tangent = *tangent;
+                        vertices[i_vertex].bitangent = *bitangent;
+                    }
                 }
 
-                if let Some(index_normal) = index_normal {
-                    let normal = normals[*index_normal];
-                    let obj::ObjVn { i, j, k } = normal;
-                    let vertex_normal = &mut vertices[*index_vertex].normal;
-                    *vertex_normal = na::Vector3::new(i, j, k);
+                // set texture coordinates and normals as specified by faces
+                for face in object.faces.iter() {
+                    for triplet in face.triplets.iter() {
+                        let obj::FTriplet {
+                            index_vertex,
+                            index_texture,
+                            index_normal,
+                        } = triplet;
+
+                        if let Some(index_texture) = index_texture {
+                            let tex_coords = tex_vertices[*index_texture];
+                            let obj::Vt { u, v, w: _ } = tex_coords;
+                            let vertex_tex = &mut vertices[*index_vertex].tex_coords;
+                            *vertex_tex = na::Vector2::new(u, v);
+                        }
+
+                        if let Some(index_normal) = index_normal {
+                            let normal = vertex_normals[*index_normal];
+                            let obj::Vn { i, j, k } = normal;
+                            let vertex_normal = &mut vertices[*index_vertex].normal;
+                            *vertex_normal = na::Vector3::new(i, j, k);
+                        }
+                    }
                 }
-            }
-        }
+
+                // make all faces to triangles naively
+                let triangles = object
+                    .faces
+                    .into_iter()
+                    .flat_map(|face| {
+                        assert!(face.triplets.len() >= 3, "too few vertices, not a face!");
+                        let ([first], other) = face.triplets.split_at(1) else {
+                            unreachable!("checked above");
+                        };
+                        other
+                            .windows(2)
+                            .flat_map(<&[obj::FTriplet; 2]>::try_from)
+                            .map(|[second, third]| {
+                                Triplet(
+                                    first.index_vertex as u32,
+                                    second.index_vertex as u32,
+                                    third.index_vertex as u32,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+            })
+            .collect::<Vec<_>>();
 
         let vertices = vertices
             .into_iter()
@@ -302,45 +333,24 @@ impl Mesh {
                     bitangent: na::Unit::new_normalize(bitangent),
                 },
             )
-            .collect();
-
-        // make all faces to triangles naively
-        let triangles = faces
-            .into_iter()
-            .flat_map(|face| {
-                assert!(face.triplets.len() >= 3, "too few vertices, not a face!");
-                let ([first], other) = face.triplets.split_at(1) else {
-                    unreachable!("checked above");
-                };
-                other
-                    .windows(2)
-                    .flat_map(<&[obj::ObjVertexTriplet; 2]>::try_from)
-                    .map(|[second, third]| {
-                        Triplet(
-                            first.index_vertex as u32,
-                            second.index_vertex as u32,
-                            third.index_vertex as u32,
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
             .collect::<Vec<_>>();
 
-        // TODO: need to adapt first face for materials after triangulation
-        let material_switches = material_switches
-            .into_iter()
-            .map(|switch| MaterialSwitch {
-                first_face: switch.first_face,
-                material: MaterialIndex {
-                    index: switch.material_index,
-                },
-            })
-            .collect();
-        Self {
-            vertices,
-            triangles,
-            material_switches,
-        }
+        // // TODO: need to adapt first face for materials after triangulation
+        // let material_switches = material_switches
+        //     .into_iter()
+        //     .map(|switch| MaterialSlice {
+        //         first_face: switch.first_face,
+        //         material: MaterialIndex {
+        //             index: switch.material_index,
+        //         },
+        //     })
+        //     .collect();
+        // Self {
+        //     vertices,
+        //     triangles,
+        //     mtl_slices: material_switches,
+        // }
+        todo!()
     }
 }
 
