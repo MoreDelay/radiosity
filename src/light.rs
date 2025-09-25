@@ -1,7 +1,7 @@
 use nalgebra as na;
 
 use crate::{
-    primitives,
+    model,
     render::{GpuTransfer, LightRaw},
 };
 
@@ -9,13 +9,13 @@ use crate::{
 pub struct Light {
     pos: na::Vector3<f32>,
     max_dist: f32,
-    color: primitives::Color,
+    color: model::Color,
     rotational_speed: f32,
     paused: bool,
 }
 
 impl Light {
-    pub fn new(pos: na::Vector3<f32>, color: primitives::Color) -> Self {
+    pub fn new(pos: na::Vector3<f32>, color: model::Color) -> Self {
         let rotational_speed = 90.;
         let max_dist = 100.;
         let paused = true;

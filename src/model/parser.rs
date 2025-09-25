@@ -15,7 +15,7 @@ pub trait MtlManager {
 
     /// Given the name of a material, this call should return the index to the material that
     /// uniquely identifies the corresponding material for this manager.
-    fn request_mtl_index(&self, name: &str) -> Option<usize>;
+    fn request_mtl_index(&self, name: &str) -> Option<u32>;
 }
 
 pub struct SimpleMtlManager {
@@ -63,11 +63,11 @@ impl MtlManager for SimpleMtlManager {
         Ok(mtls_in_this_lib)
     }
 
-    fn request_mtl_index(&self, name: &str) -> Option<usize> {
+    fn request_mtl_index(&self, name: &str) -> Option<u32> {
         self.names
             .iter()
             .enumerate()
-            .find_map(|(i, n)| if n == name { Some(i) } else { None })
+            .find_map(|(i, n)| (n == name).then_some(i as u32))
     }
 }
 

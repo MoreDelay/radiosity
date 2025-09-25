@@ -3,7 +3,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 use nalgebra as na;
 use winit::window::Window;
 
-use crate::{camera, light, model, primitives, render};
+use crate::{camera, light, model, render};
 
 pub mod manager;
 
@@ -37,7 +37,7 @@ impl SceneState {
 
         // let light_pos = [2., 2., 2.].into();
         let light_pos = pos;
-        let color = primitives::Color {
+        let color = model::Color {
             r: 1.,
             g: 1.,
             b: 1.,
@@ -48,7 +48,9 @@ impl SceneState {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let model_path = root.join("resources/sibenik/sibenik.obj");
         let mut model_storage = model::ModelStorage::new();
-        let mesh_index = model_storage.load_mesh(&model_path).unwrap();
+        let mesh_indices = model_storage.load_meshes(&model_path).unwrap();
+        assert!(mesh_indices.len() >= 1, "no mesh in obj");
+        let mesh_index = mesh_indices[0];
 
         let render_state = Rc::new(RefCell::new(
             render::RenderState::create(render_init, &target_camera, &light).unwrap(),
@@ -76,6 +78,10 @@ impl SceneState {
                 })
             })
             .collect::<Vec<_>>();
+        let instances = vec![model::Instance {
+            position: na::Vector3::zeros(),
+            rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
+        }];
 
         let instance_index = render_state
             .borrow_mut()

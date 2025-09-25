@@ -471,12 +471,12 @@ impl RenderState {
         }
 
         // light pass
-        if let Some(index) = light_mesh_index {
-            render_pass.set_pipeline(self.light_pipeline.deref());
-            let buffer = self.model_resource_storage.get_mesh_buffer(index);
-            render_pass.set_vertex_buffer(0, buffer.vertices.slice(..));
-            render_pass.draw_indexed(0..buffer.num_indices, 0, 0..1);
-        }
+        // if let Some(index) = light_mesh_index {
+        //     render_pass.set_pipeline(self.light_pipeline.deref());
+        //     let buffer = self.model_resource_storage.get_mesh_buffer(index);
+        //     render_pass.set_vertex_buffer(0, buffer.vertices.slice(..));
+        //     render_pass.draw_indexed(0..buffer.num_indices, 0, 0..1);
+        // }
 
         // render pass recording ends when dropped
         drop(render_pass);

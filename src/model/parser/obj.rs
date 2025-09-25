@@ -47,9 +47,9 @@ pub struct Vn {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct FTriplet {
-    pub index_vertex: usize,
-    pub index_texture: Option<usize>,
-    pub index_normal: Option<usize>,
+    pub index_vertex: u32,
+    pub index_texture: Option<u32>,
+    pub index_normal: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,18 +59,18 @@ pub struct F {
 
 #[derive(Debug, Clone)]
 pub struct FaceRanges {
-    pub slices: Vec<Range<usize>>,
+    pub slices: Vec<Range<u32>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Object {
     pub name: Option<String>,
     pub faces: Vec<F>,
     pub groups: HashMap<String, FaceRanges>,
-    pub mtls: HashMap<Option<usize>, FaceRanges>,
+    pub mtls: HashMap<Option<u32>, FaceRanges>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ParsedObj {
     pub geo_vertices: Vec<V>,
     pub tex_vertices: Vec<Vt>,
@@ -93,7 +93,7 @@ pub enum ObjError {
 #[derive(Error, Debug)]
 pub enum ObjSpecError {
     #[error("invalid list index, must be non-zero and expect between -{0} and {0}, got {1}")]
-    InvalidListIndex(usize, i32),
+    InvalidListIndex(u32, i32),
     #[error(
         "a face must have at least 3 vertices, supported at most {MAX_VERTICES_PER_FACE}, found {0}"
     )]
@@ -201,22 +201,22 @@ fn obj_vn(input: &str) -> IResult<&str, Vn> {
     Ok((rest, normal))
 }
 
-fn obj_list_index(len: usize) -> impl FnMut(&str) -> IResult<&str, Result<usize, ObjSpecError>> {
+fn obj_list_index(len: u32) -> impl FnMut(&str) -> IResult<&str, Result<u32, ObjSpecError>> {
     move |i: &str| {
         let (rest, index) = parse_i32.parse(i)?;
         // obj uses 1-based indexing, convert here to 0-based
-        let valid = index != 0 && index.unsigned_abs() as usize <= len;
+        let valid = index != 0 && index.unsigned_abs() <= len;
         if !valid {
             return Ok((i, Err(ObjSpecError::InvalidListIndex(len, index))));
         }
-        let abs = index.unsigned_abs() as usize;
+        let abs = index.unsigned_abs();
         let index = if index < 0 { len - abs } else { abs - 1 };
         Ok((rest, Ok(index)))
     }
 }
 
 fn obj_face_vxx(
-    n_vertices: usize,
+    n_vertices: u32,
 ) -> impl FnMut(&str) -> IResult<&str, Result<FTriplet, ObjSpecError>> {
     move |i: &str| {
         obj_list_index(n_vertices)
@@ -232,8 +232,8 @@ fn obj_face_vxx(
 }
 
 fn obj_face_vtx(
-    n_vertices: usize,
-    n_textures: usize,
+    n_vertices: u32,
+    n_textures: u32,
 ) -> impl FnMut(&str) -> IResult<&str, Result<FTriplet, ObjSpecError>> {
     move |i: &str| {
         (
@@ -253,8 +253,8 @@ fn obj_face_vtx(
 }
 
 fn obj_face_vxn(
-    n_vertices: usize,
-    n_normals: usize,
+    n_vertices: u32,
+    n_normals: u32,
 ) -> impl FnMut(&str) -> IResult<&str, Result<FTriplet, ObjSpecError>> {
     move |i: &str| {
         (
@@ -274,9 +274,9 @@ fn obj_face_vxn(
 }
 
 fn obj_face_vtn(
-    n_vertices: usize,
-    n_textures: usize,
-    n_normals: usize,
+    n_vertices: u32,
+    n_textures: u32,
+    n_normals: u32,
 ) -> impl FnMut(&str) -> IResult<&str, Result<FTriplet, ObjSpecError>> {
     move |i: &str| {
         (
@@ -297,11 +297,7 @@ fn obj_face_vtn(
     }
 }
 
-fn obj_f(
-    n_v: usize,
-    n_t: usize,
-    n_n: usize,
-) -> impl Fn(&str) -> IResult<&str, Result<F, ObjSpecError>>
+fn obj_f(n_v: u32, n_t: u32, n_n: u32) -> impl Fn(&str) -> IResult<&str, Result<F, ObjSpecError>>
 where
 {
     const MAX: usize = MAX_VERTICES_PER_FACE;
@@ -398,9 +394,9 @@ fn obj_o(input: &str) -> IResult<&str, O> {
 }
 
 fn obj_line(
-    n_vertices: usize,
-    n_textures: usize,
-    n_normals: usize,
+    n_vertices: u32,
+    n_textures: u32,
+    n_normals: u32,
 ) -> impl FnMut(&str) -> IResult<&str, Line> {
     move |i: &str| {
         alt((
@@ -411,6 +407,7 @@ fn obj_line(
             obj_f(n_vertices, n_textures, n_normals).map(Line::F),
             obj_mtllib.map(Line::MtlLib),
             obj_g.map(Line::G),
+            obj_o.map(Line::O),
             obj_usemtl.map(Line::UseMtl),
             obj_ignore.map(|_| Line::Empty),
         ))
@@ -443,11 +440,11 @@ pub fn load_obj(
     // parser state helper struct
     struct GroupState {
         names: Vec<String>,
-        start: usize,
+        start: u32,
     }
     struct MtlState {
-        index: Option<usize>,
-        start: usize,
+        index: Option<u32>,
+        start: u32,
     }
 
     // actual parser state
@@ -470,9 +467,9 @@ pub fn load_obj(
     while reader.read_line(&mut buffer)? > 0 {
         line_index += 1;
         loop {
-            let n_v = res.geo_vertices.len();
-            let n_t = res.tex_vertices.len();
-            let n_n = res.vertex_normals.len();
+            let n_v = res.geo_vertices.len() as u32;
+            let n_t = res.tex_vertices.len() as u32;
+            let n_n = res.vertex_normals.len() as u32;
             let (rest, line) = match obj_line(n_v, n_t, n_n).parse(&buffer) {
                 Ok((rest, line)) => (rest, line),
                 Err(nom::Err::Incomplete(_)) => break,
@@ -497,9 +494,9 @@ pub fn load_obj(
                 }
                 Line::G(G { names }) => {
                     // complete current groups
-                    let last = cur_object.faces.len() - 1;
+                    let end = cur_object.faces.len() as u32;
                     if let Some(cur_groups) = cur_groups.take() {
-                        let range = cur_groups.start..last;
+                        let range = cur_groups.start..end;
                         for name in cur_groups.names {
                             cur_object
                                 .groups
@@ -512,13 +509,13 @@ pub fn load_obj(
                     }
 
                     // start new groups
-                    let start = last + 1;
+                    let start = end;
                     cur_groups = Some(GroupState { names, start });
                 }
                 Line::UseMtl(Usemtl { name }) => {
                     // complete current material
-                    let last = cur_object.faces.len() - 1;
-                    let range = cur_mtl.start..last;
+                    let end = cur_object.faces.len() as u32;
+                    let range = cur_mtl.start..end;
                     cur_object
                         .mtls
                         .entry(cur_mtl.index)
@@ -528,7 +525,7 @@ pub fn load_obj(
                         });
 
                     // start new material
-                    let start = last + 1;
+                    let start = end;
                     let index = name
                         .map(|name| {
                             let valid_name = material_names.contains(&name);
@@ -556,6 +553,21 @@ pub fn load_obj(
                 }
             };
         }
+    }
+
+    // complete final object
+    let end = cur_object.faces.len() as u32;
+    let range = cur_mtl.start..end;
+    cur_object
+        .mtls
+        .entry(cur_mtl.index)
+        .and_modify(|e| e.slices.push(range.clone()))
+        .or_insert_with(|| FaceRanges {
+            slices: vec![range.clone()],
+        });
+
+    if !cur_object.faces.is_empty() {
+        res.objects.push(cur_object);
     }
 
     Ok(res)

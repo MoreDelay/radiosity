@@ -16,6 +16,8 @@ use nom::{
     sequence::{delimited, preceded},
 };
 
+use crate::model::primitives::Color;
+
 use thiserror::Error;
 
 const NS_MIN: f32 = 0.;
@@ -465,6 +467,24 @@ pub fn parse_mtl(path: &Path) -> Result<Vec<ParsedMtl>, MtlError> {
     }
 
     Ok(all_materials)
+}
+
+impl From<MtlKa> for Color {
+    fn from(MtlKa(r, g, b): MtlKa) -> Self {
+        Color { r, g, b }
+    }
+}
+
+impl From<MtlKd> for Color {
+    fn from(MtlKd(r, g, b): MtlKd) -> Self {
+        Color { r, g, b }
+    }
+}
+
+impl From<MtlKs> for Color {
+    fn from(MtlKs(r, g, b): MtlKs) -> Self {
+        Color { r, g, b }
+    }
 }
 
 #[cfg(test)]

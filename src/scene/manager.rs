@@ -104,48 +104,28 @@ impl DrawManager {
         };
         self.meshes.insert(mesh_index, mesh_info);
 
-        let mut face_start = 0;
-        let mut last_material = None;
-        for switch in mesh.mtl_slices.iter() {
-            todo!();
-            // let &model::MaterialSlice {
-            //     first_face: face_end,
-            //     material,
-            // } = switch;
-            // let face_end = face_end as u32;
-            //
-            // let label = label.map(|l| format!("{l}-Material"));
-            // self.add_material(storage, material, label.as_deref());
-            //
-            // if face_start != face_end {
-            //     let slice = FaceIndexSlice(face_start * 3..face_end * 3);
-            //     let subscription = MaterialSubscription { slice, mesh_index };
-            //     let material_info = self
-            //         .materials
-            //         .get_mut(&material)
-            //         .expect("made sure it exists before");
-            //     material_info
-            //         .subscribed_meshes
-            //         .insert(mesh_info_index, subscription);
-            // }
-            // face_start = face_end;
-            // last_material = Some(material);
+        for (&mtl_index, model::MaterialRanges { ranges }) in mesh.mtl_ranges.iter() {
+            let Some(mtl_index) = mtl_index else {
+                continue;
+            };
+
+            let label = label.map(|l| format!("{l}-Material"));
+            self.add_material(storage, mtl_index, label.as_deref());
+
+            for range in ranges.iter() {
+                let start = range.start as u32;
+                let end = range.end as u32;
+                let slice = FaceIndexSlice(start * 3..end * 3);
+                let subscription = MaterialSubscription { slice, mesh_index };
+                let material_info = self
+                    .materials
+                    .get_mut(&mtl_index)
+                    .expect("made sure it exists before");
+                material_info
+                    .subscribed_meshes
+                    .insert(mesh_info_index, subscription);
+            }
         }
-
-        let material = last_material.expect("we did at least one iteration to set material");
-        let label = label.map(|l| format!("mtl first used for {l}"));
-        self.add_material(storage, material, label.as_deref());
-
-        let face_end = mesh.triangles.len() as u32;
-        let slice = FaceIndexSlice(face_start * 3..face_end * 3);
-        let subscription = MaterialSubscription { slice, mesh_index };
-        let material_info = self
-            .materials
-            .get_mut(&material)
-            .expect("made sure it exists before");
-        material_info
-            .subscribed_meshes
-            .insert(mesh_info_index, subscription);
     }
 
     pub fn get_buffer_index(&self, index: model::MeshIndex) -> Option<render::MeshBufferIndex> {
