@@ -56,6 +56,7 @@ pub struct RenderState {
     shadow_depth_texture: resource::DepthTexture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
+    #[expect(unused)]
     light_pipeline: pipeline::LightPipeline,
     model_resource_storage: ModelResourceStorage,
 }
@@ -266,7 +267,7 @@ impl RenderState {
     pub fn draw<I, D>(
         &mut self,
         mtl_iter: I,
-        light_mesh_index: Option<MeshBufferIndex>,
+        #[expect(unused)] light_mesh_index: Option<MeshBufferIndex>,
     ) -> Result<(), wgpu::SurfaceError>
     where
         I: Iterator<Item = D> + Clone,

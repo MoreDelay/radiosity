@@ -45,7 +45,7 @@ pub struct Vn {
     pub k: f32,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct FTriplet {
     pub index_vertex: u32,
     pub index_texture: Option<u32>,

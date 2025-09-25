@@ -58,26 +58,25 @@ impl SceneState {
 
         let mut manager = manager::DrawManager::new(Rc::clone(&render_state));
 
-        const SPACE_BETWEEN: f32 = 3.0;
-        let instances = (0..model::NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..model::NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
-                    let z = SPACE_BETWEEN * (z as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
-
-                    let position = na::Vector3::new(x, 0.0, z);
-                    let rotation = if position == na::Vector3::zeros() {
-                        na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.)
-                    } else {
-                        na::UnitQuaternion::from_axis_angle(
-                            &na::Unit::new_normalize(position),
-                            std::f32::consts::FRAC_PI_8,
-                        )
-                    };
-                    model::Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
+        // let instances = (0..model::NUM_INSTANCES_PER_ROW)
+        //     .flat_map(|z| {
+        //         (0..model::NUM_INSTANCES_PER_ROW).map(move |x| {
+        //             let x = SPACE_BETWEEN * (x as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
+        //             let z = SPACE_BETWEEN * (z as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
+        //
+        //             let position = na::Vector3::new(x, 0.0, z);
+        //             let rotation = if position == na::Vector3::zeros() {
+        //                 na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.)
+        //             } else {
+        //                 na::UnitQuaternion::from_axis_angle(
+        //                     &na::Unit::new_normalize(position),
+        //                     std::f32::consts::FRAC_PI_8,
+        //                 )
+        //             };
+        //             model::Instance { position, rotation }
+        //         })
+        //     })
+        //     .collect::<Vec<_>>();
         let instances = vec![model::Instance {
             position: na::Vector3::zeros(),
             rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
