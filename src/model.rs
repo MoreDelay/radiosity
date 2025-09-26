@@ -123,7 +123,6 @@ impl ModelStorage {
 
         let first_new_index = self.meshes.len() as u32;
         let new_indices = (0..model.meshes.len() as u32)
-            .into_iter()
             .map(|v| MeshIndex {
                 index: v + first_new_index,
             })
@@ -283,7 +282,7 @@ impl SkipSequence {
 
         loop {
             if self.seq[seq_index].start > old_index {
-                seq_index = seq_index / 2;
+                seq_index /= 2;
                 continue;
             }
             if self
@@ -291,14 +290,13 @@ impl SkipSequence {
                 .get(seq_index + 1)
                 .is_some_and(|entry| entry.start <= old_index)
             {
-                seq_index += (seq_index + 1) / 2;
+                seq_index += seq_index.div_ceil(2);
                 continue;
             }
             break;
         }
 
-        let new_index = old_index - self.seq[seq_index].skipped;
-        new_index
+        old_index - self.seq[seq_index].skipped
     }
 }
 
@@ -334,7 +332,7 @@ impl Object {
         let mut tex_bitvec = bitvec![0; tex_vertices.len()];
         let mut norm_bitvec = bitvec![0; vertex_normals.len()];
 
-        for triplet in faces.iter().map(|f| &f.triplets).flatten() {
+        for triplet in faces.iter().flat_map(|f| &f.triplets) {
             let &obj::FTriplet {
                 index_vertex,
                 index_texture,
@@ -498,15 +496,11 @@ impl Mesh {
             let (index, range) = old_ranges
                 .iter()
                 .find_map(|(index, face_ranges)| {
-                    if let Some(slice) = face_ranges
+                    face_ranges
                         .slices
                         .iter()
                         .find(|Range { start, .. }| *start == face_index)
-                    {
-                        Some((*index, slice.clone()))
-                    } else {
-                        None
-                    }
+                        .map(|slice| (*index, slice.clone()))
                 })
                 .expect("all faces must be assigned to a material");
 
@@ -649,7 +643,7 @@ impl Model {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
         let meshes = Object::separate_objects(parsed_obj)
             .into_iter()
-            .map(|obj| Mesh::new(obj))
+            .map(Mesh::new)
             .collect();
 
         Self { meshes }
@@ -736,8 +730,8 @@ impl render::GpuTransfer for Instance {
     fn to_raw(&self) -> Self::Raw {
         let model = na::Translation::from(self.position) * self.rotation;
         let model = model.to_matrix().into();
-        let normal = self.rotation.to_rotation_matrix();
-        let normal = normal.matrix().clone().into();
+        let normal = *self.rotation.to_rotation_matrix().matrix();
+        let normal = normal.into();
         render::InstanceRaw { model, normal }
     }
 }

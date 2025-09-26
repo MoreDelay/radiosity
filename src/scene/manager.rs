@@ -113,8 +113,8 @@ impl DrawManager {
             self.add_material(storage, mtl_index, label.as_deref());
 
             for range in ranges.iter() {
-                let start = range.start as u32;
-                let end = range.end as u32;
+                let start = range.start;
+                let end = range.end;
                 let slice = FaceIndexSlice(start * 3..end * 3);
                 let subscription = MaterialSubscription { slice, mesh_index };
                 let material_info = self

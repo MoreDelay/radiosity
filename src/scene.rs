@@ -49,7 +49,7 @@ impl SceneState {
         let model_path = root.join("resources/sibenik/sibenik.obj");
         let mut model_storage = model::ModelStorage::new();
         let mesh_indices = model_storage.load_meshes(&model_path).unwrap();
-        assert!(mesh_indices.len() >= 1, "no mesh in obj");
+        assert!(!mesh_indices.is_empty(), "no mesh in obj");
         let mesh_index = mesh_indices[0];
 
         let render_state = Rc::new(RefCell::new(
