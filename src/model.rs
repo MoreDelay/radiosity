@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     ops::{Deref, Range},
     path::Path,
+    sync::LazyLock,
 };
 
 use bitvec::prelude::*;
@@ -69,6 +70,7 @@ pub struct PhongParameters {
     pub specular_exponent: f32,
 }
 
+#[derive(Debug, Clone)]
 pub struct Material {
     pub name: String,
     pub phong_params: PhongParameters,
@@ -108,8 +110,19 @@ impl ModelStorage {
         &self.meshes[index as usize]
     }
 
-    pub fn get_material(&self, MaterialIndex { index }: MaterialIndex) -> &Material {
-        &self.materials[index as usize]
+    pub fn get_material(&self, index: Option<MaterialIndex>) -> &Material {
+        static DEFAULT: LazyLock<Material> = LazyLock::new(|| Material {
+            name: String::from("Default"),
+            phong_params: Default::default(),
+            color_texture: None,
+            normal_texture: None,
+        });
+
+        if let Some(MaterialIndex { index }) = index {
+            &self.materials[index as usize]
+        } else {
+            &DEFAULT
+        }
     }
 
     pub fn load_meshes(&mut self, path: &Path) -> anyhow::Result<Vec<MeshIndex>> {
@@ -629,6 +642,18 @@ impl Mesh {
                 }
             })
             .collect();
+
+        // TODO: remove:
+        let new_ranges = {
+            let range = MaterialRanges {
+                ranges: vec![0..triangles.len() as u32],
+            };
+            let mut new_ranges = HashMap::new();
+            // let index = Some(MaterialIndex { index: 10 as u32 });
+            let index = None;
+            new_ranges.insert(index, range);
+            new_ranges
+        };
 
         Mesh {
             name,

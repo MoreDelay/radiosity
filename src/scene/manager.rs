@@ -35,7 +35,7 @@ struct MaterialInfo {
 
 pub struct DrawManager {
     render_state: Rc<RefCell<render::RenderState>>,
-    materials: HashMap<model::MaterialIndex, MaterialInfo>,
+    materials: HashMap<Option<model::MaterialIndex>, MaterialInfo>,
     meshes: HashMap<model::MeshIndex, MeshInfo>,
 }
 
@@ -67,7 +67,7 @@ impl DrawManager {
     fn add_material(
         &mut self,
         storage: &model::ModelStorage,
-        material_index: model::MaterialIndex,
+        material_index: Option<model::MaterialIndex>,
         label: Option<&str>,
     ) {
         if self.materials.contains_key(&material_index) {
@@ -105,10 +105,6 @@ impl DrawManager {
         self.meshes.insert(mesh_index, mesh_info);
 
         for (&mtl_index, model::MaterialRanges { ranges }) in mesh.mtl_ranges.iter() {
-            let Some(mtl_index) = mtl_index else {
-                continue;
-            };
-
             let label = label.map(|l| format!("{l}-Material"));
             self.add_material(storage, mtl_index, label.as_deref());
 
@@ -137,7 +133,7 @@ impl DrawManager {
 #[derive(Clone)]
 pub struct DrawIterator<'a> {
     manager: &'a DrawManager,
-    iterator: hash_map::Iter<'a, model::MaterialIndex, MaterialInfo>,
+    iterator: hash_map::Iter<'a, Option<model::MaterialIndex>, MaterialInfo>,
 }
 
 #[derive(Clone)]
