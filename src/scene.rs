@@ -27,7 +27,7 @@ impl SceneState {
     pub fn new(window: Arc<Window>) -> Self {
         let render_init = pollster::block_on(render::RenderStateInit::new(window));
 
-        let pos = na::Vector3::new(0.0, 4.0, 7.0);
+        let pos = 10f32 * na::Vector3::new(0.0, 4.0, 7.0);
         let target = na::Vector3::new(0.0, 0.0, 2.0);
         let distance = 10.;
         let frame = render_init.get_frame_dim();
