@@ -56,7 +56,6 @@ pub struct RenderState {
     shadow_depth_texture: resource::DepthTexture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
-    #[expect(unused)]
     light_pipeline: pipeline::LightPipeline,
     model_resource_storage: ModelResourceStorage,
 }

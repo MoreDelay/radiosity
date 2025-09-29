@@ -92,7 +92,6 @@ pub struct ShadowBindings {
 pub struct MeshBuffer {
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
-    #[expect(unused)]
     pub num_indices: u32,
 }
 pub struct InstanceBuffer {

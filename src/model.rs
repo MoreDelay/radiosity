@@ -94,6 +94,16 @@ pub struct Mesh {
     pub mtl_ranges: HashMap<Option<MaterialIndex>, MaterialRanges>,
 }
 
+pub struct MeshSeparated {
+    #[expect(unused)]
+    pub name: Option<String>,
+    pub geometry: Vec<na::Vector3<f32>>,
+    pub normals_computed: Vec<na::Unit<na::Vector3<f32>>>,
+    #[expect(unused)]
+    pub normals_specified: Vec<na::Unit<na::Vector3<f32>>>,
+    pub triangles: Vec<(u32, u32, u32)>,
+}
+
 pub struct Model {
     pub meshes: Vec<Mesh>,
 }
@@ -446,7 +456,6 @@ impl InterleavedVertices {
                 match map.entry(triplet) {
                     Entry::Occupied(_) => (), // already present
                     Entry::Vacant(entry) => {
-                        let index = vertices.len() as u32;
                         let position = {
                             let obj::V { x, y, z, w: _ } = geo[triplet.index_vertex as usize];
                             na::Vector3::new(x, y, z)
@@ -472,6 +481,8 @@ impl InterleavedVertices {
                             tangent: na::Vector3::zeros(),
                             bitangent: na::Vector3::zeros(),
                         };
+
+                        let index = vertices.len() as u32;
                         vertices.push(new_v);
                         entry.insert(index);
                     }
@@ -567,11 +578,6 @@ impl Mesh {
                 });
             triangles.extend(new_triangles);
         }
-        // let triangles = faces
-        //     .into_iter()
-        //     .enumerate()
-        //     .flat_map(|(orig_f_index, face)| {})
-        //     .collect::<Vec<_>>();
 
         // add last texture
         let last_slice = active_mtl.new_start..triangles.len() as u32;
@@ -661,6 +667,134 @@ impl Mesh {
             mtl_ranges: new_ranges,
             vertices,
         }
+    }
+}
+
+impl MeshSeparated {
+    #[expect(dead_code)]
+    fn new(obj: Object) -> Self {
+        let Object {
+            name,
+            faces,
+            groups: _,
+            mtls: _,
+            geo_vertices: old_geo,
+            tex_vertices: _,
+            vertex_normals: old_normals,
+        } = obj;
+
+        let mut new_geo = Vec::new();
+        let mut new_normals = Vec::new();
+        let mut triplet_to_index = HashMap::<obj::FTriplet, u32>::new();
+
+        let mut missing_normal = false;
+
+        use std::collections::hash_map::Entry;
+
+        for obj::F { triplets } in faces.iter() {
+            for &triplet in triplets.iter() {
+                missing_normal |= triplet.index_normal.is_none();
+
+                match triplet_to_index.entry(triplet) {
+                    Entry::Occupied(_) => (), // already present
+                    Entry::Vacant(entry) => {
+                        let old_index = triplet.index_vertex as usize;
+                        let position = {
+                            let obj::V { x, y, z, w: _ } = old_geo[old_index];
+                            na::Vector3::new(x, y, z)
+                        };
+
+                        let index = new_geo.len() as u32;
+                        new_geo.push(position);
+                        entry.insert(index);
+                    }
+                }
+            }
+        }
+
+        if !missing_normal {
+            new_normals.resize_with(new_geo.len(), na::Vector3::zeros);
+
+            for obj::F { triplets } in faces.iter() {
+                for &triplet in triplets.iter() {
+                    match triplet_to_index.entry(triplet) {
+                        Entry::Occupied(entry) => {
+                            let old_index =
+                                triplet.index_normal.expect("checked previously") as usize;
+                            let normal = {
+                                let obj::Vn { i, j, k } = old_normals[old_index];
+                                na::Vector3::new(i, j, k)
+                            };
+
+                            let new_index = *entry.get() as usize;
+                            new_normals[new_index] = normal;
+                        }
+                        Entry::Vacant(_) => {
+                            unreachable!("all geo/normal combinations should have an index here");
+                        }
+                    }
+                }
+            }
+        }
+
+        // make triangles out of polygons naively
+        let triangles = faces
+            .into_iter()
+            .flat_map(|face| {
+                assert!(face.triplets.len() >= 3, "too few vertices, not a face!");
+
+                let first = *face.triplets.first().expect("checked above");
+                let first = triplet_to_index[&first];
+                face.triplets[1..]
+                    .windows(2)
+                    .flat_map(<&[obj::FTriplet; 2]>::try_from)
+                    .map(|[second, third]| {
+                        let second = triplet_to_index[second];
+                        let third = triplet_to_index[third];
+
+                        (first, second, third)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        let new_normals = new_normals
+            .into_iter()
+            .map(|n| na::Unit::new_normalize(n))
+            .collect();
+
+        Self {
+            name,
+            geometry: new_geo,
+            normals_computed: Vec::new(),
+            normals_specified: new_normals,
+            triangles,
+        }
+    }
+
+    #[expect(dead_code)]
+    fn compute_normals(&mut self) {
+        let mut normals_computed = Vec::new();
+        normals_computed.resize_with(self.geometry.len(), na::Vector3::zeros);
+
+        for &(i0, i1, i2) in self.triangles.iter() {
+            let p0 = &self.geometry[i0 as usize];
+            let p1 = &self.geometry[i1 as usize];
+            let p2 = &self.geometry[i2 as usize];
+
+            let v0 = p1 - p0;
+            let v1 = p2 - p0;
+            let normal = na::Unit::new_normalize(v0.cross(&v1));
+
+            normals_computed[i0 as usize] += *normal;
+            normals_computed[i1 as usize] += *normal;
+            normals_computed[i2 as usize] += *normal;
+        }
+
+        self.normals_computed = normals_computed
+            .into_iter()
+            .map(|n| na::Unit::new_normalize(n))
+            .collect();
     }
 }
 
