@@ -97,7 +97,7 @@ pub struct Mesh {
 pub struct MeshSeparated {
     #[expect(unused)]
     pub name: Option<String>,
-    pub geometry: Vec<na::Vector3<f32>>,
+    pub vertices: Vec<na::Vector3<f32>>,
     pub normals_computed: Vec<na::Unit<na::Vector3<f32>>>,
     #[expect(unused)]
     pub normals_specified: Vec<na::Unit<na::Vector3<f32>>>,
@@ -683,7 +683,7 @@ impl MeshSeparated {
             vertex_normals: old_normals,
         } = obj;
 
-        let mut new_geo = Vec::new();
+        let mut new_vertices = Vec::new();
         let mut new_normals = Vec::new();
         let mut triplet_to_index = HashMap::<obj::FTriplet, u32>::new();
 
@@ -704,8 +704,8 @@ impl MeshSeparated {
                             na::Vector3::new(x, y, z)
                         };
 
-                        let index = new_geo.len() as u32;
-                        new_geo.push(position);
+                        let index = new_vertices.len() as u32;
+                        new_vertices.push(position);
                         entry.insert(index);
                     }
                 }
@@ -713,7 +713,7 @@ impl MeshSeparated {
         }
 
         if !missing_normal {
-            new_normals.resize_with(new_geo.len(), na::Vector3::zeros);
+            new_normals.resize_with(new_vertices.len(), na::Vector3::zeros);
 
             for obj::F { triplets } in faces.iter() {
                 for &triplet in triplets.iter() {
@@ -765,7 +765,7 @@ impl MeshSeparated {
 
         Self {
             name,
-            geometry: new_geo,
+            vertices: new_vertices,
             normals_computed: Vec::new(),
             normals_specified: new_normals,
             triangles,
@@ -775,12 +775,12 @@ impl MeshSeparated {
     #[expect(dead_code)]
     fn compute_normals(&mut self) {
         let mut normals_computed = Vec::new();
-        normals_computed.resize_with(self.geometry.len(), na::Vector3::zeros);
+        normals_computed.resize_with(self.vertices.len(), na::Vector3::zeros);
 
         for &(i0, i1, i2) in self.triangles.iter() {
-            let p0 = &self.geometry[i0 as usize];
-            let p1 = &self.geometry[i1 as usize];
-            let p2 = &self.geometry[i2 as usize];
+            let p0 = &self.vertices[i0 as usize];
+            let p1 = &self.vertices[i1 as usize];
+            let p2 = &self.vertices[i2 as usize];
 
             let v0 = p1 - p0;
             let v1 = p2 - p0;

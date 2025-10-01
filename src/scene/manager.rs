@@ -10,9 +10,6 @@ use crate::{model, render};
 #[derive(Debug)]
 struct FaceIndexSlice(Range<u32>);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct MeshInfoIndex(usize);
-
 #[derive(Debug, Clone, Copy)]
 struct MeshInfo {
     buffer_index: render::MeshBufferIndex,
@@ -30,7 +27,7 @@ struct MaterialSubscription {
 #[derive(Debug)]
 struct MaterialInfo {
     binding_index: render::MaterialBindingIndex,
-    subscribed_meshes: HashMap<MeshInfoIndex, MaterialSubscription>,
+    subscribed_meshes: Vec<MaterialSubscription>,
 }
 
 pub struct DrawManager {
@@ -78,7 +75,7 @@ impl DrawManager {
         let binding_index = self.render_state.borrow_mut().add_material(material, label);
         let material_info = MaterialInfo {
             binding_index,
-            subscribed_meshes: HashMap::new(),
+            subscribed_meshes: Vec::new(),
         };
         self.materials.insert(material_index, material_info);
     }
@@ -94,8 +91,6 @@ impl DrawManager {
         assert!(!mesh.triangles.is_empty());
         let buffer_index = self.render_state.borrow_mut().add_mesh_buffer(mesh, label);
 
-        let mesh_info_index = self.meshes.len();
-        let mesh_info_index = MeshInfoIndex(mesh_info_index);
         let mesh_info = MeshInfo {
             buffer_index,
             instance_index,
@@ -117,9 +112,7 @@ impl DrawManager {
                     .materials
                     .get_mut(&mtl_index)
                     .expect("made sure it exists before");
-                material_info
-                    .subscribed_meshes
-                    .insert(mesh_info_index, subscription);
+                material_info.subscribed_meshes.push(subscription);
             }
         }
     }
@@ -140,7 +133,7 @@ pub struct DrawIterator<'a> {
 pub struct DrawMaterialIterator<'a> {
     manager: &'a DrawManager,
     material_info: &'a MaterialInfo,
-    iterator: hash_map::Iter<'a, MeshInfoIndex, MaterialSubscription>,
+    iterator: std::slice::Iter<'a, MaterialSubscription>,
 }
 
 impl<'a> Iterator for DrawIterator<'a> {
@@ -162,7 +155,7 @@ impl<'a> Iterator for DrawMaterialIterator<'a> {
     type Item = render::DrawSlice;
 
     fn next(&mut self) -> Option<Self::Item> {
-        for (_, subscription) in self.iterator.by_ref() {
+        for subscription in self.iterator.by_ref() {
             let MaterialSubscription { slice, mesh_index } = subscription;
             let mesh_info = self
                 .manager
