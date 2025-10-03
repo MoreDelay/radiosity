@@ -114,7 +114,7 @@ pub struct MaterialBindingIndex {
     index: usize,
 }
 
-pub struct ModelResourceStorage {
+pub(super) struct ModelResourceStorage {
     mesh_buffers: Vec<MeshBuffer>,
     instance_buffers: Vec<InstanceBuffer>,
     material_bindings: Vec<MaterialBindings>,

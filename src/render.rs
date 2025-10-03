@@ -44,12 +44,6 @@ pub struct RenderState {
     phong_layout: resource::PhongBindGroupLayout,
     texture_layout: resource::TextureBindGroupLayout,
     texture_pipelines: pipeline::TexturePipelines,
-    #[expect(unused)]
-    mesh_buffers: Vec<resource::MeshBuffer>,
-    #[expect(unused)]
-    material_bindings: Vec<resource::MaterialBindings>,
-    #[expect(unused)]
-    instance_buffers: Vec<resource::InstanceBuffer>,
     depth_texture: resource::DepthTexture,
     shadow_binding: resource::ShadowBindings,
     shadow_pipeline: pipeline::ShadowPipeline,
@@ -210,10 +204,6 @@ impl RenderState {
 
         let model_resource_storage = ModelResourceStorage::new();
 
-        let mesh_buffers = Vec::new();
-        let material_bindings = Vec::new();
-        let instance_buffers = Vec::new();
-
         Ok(Self {
             surface,
             device,
@@ -231,9 +221,6 @@ impl RenderState {
             texture_pipelines,
             light_pipeline,
             model_resource_storage,
-            mesh_buffers,
-            material_bindings,
-            instance_buffers,
         })
     }
 
