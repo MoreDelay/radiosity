@@ -11,7 +11,7 @@ use nalgebra::{self as na, Unit};
 
 use crate::{
     model::parser::{mtl, obj},
-    render,
+    render::{self, VertexRaw},
 };
 
 pub mod parser;
@@ -41,7 +41,7 @@ pub struct VertexIndex {
 }
 
 pub struct ModelStorage {
-    meshes: Vec<Mesh>,
+    meshes: Vec<MeshSeparated>,
     materials: Vec<Material>,
 }
 
@@ -99,13 +99,12 @@ pub struct MeshSeparated {
     pub name: Option<String>,
     pub vertices: Vec<na::Vector3<f32>>,
     pub normals_computed: Vec<na::Unit<na::Vector3<f32>>>,
-    #[expect(unused)]
     pub normals_specified: Vec<na::Unit<na::Vector3<f32>>>,
     pub triangles: Vec<(u32, u32, u32)>,
 }
 
 pub struct Model {
-    pub meshes: Vec<Mesh>,
+    pub meshes: Vec<MeshSeparated>,
 }
 
 impl ModelStorage {
@@ -116,7 +115,7 @@ impl ModelStorage {
         }
     }
 
-    pub fn get_mesh(&self, MeshIndex { index }: MeshIndex) -> &Mesh {
+    pub fn get_mesh(&self, MeshIndex { index }: MeshIndex) -> &MeshSeparated {
         &self.meshes[index as usize]
     }
 
@@ -651,8 +650,9 @@ impl Mesh {
 
         // TODO: remove:
         let new_ranges = {
+            let range = 0..triangles.len() as u32;
             let range = MaterialRanges {
-                ranges: vec![0..triangles.len() as u32],
+                ranges: vec![range],
             };
             let mut new_ranges = HashMap::new();
             // let index = Some(MaterialIndex { index: 10 as u32 });
@@ -661,7 +661,7 @@ impl Mesh {
             new_ranges
         };
 
-        Mesh {
+        Self {
             name,
             triangles,
             mtl_ranges: new_ranges,
@@ -760,7 +760,7 @@ impl MeshSeparated {
 
         let new_normals = new_normals
             .into_iter()
-            .map(|n| na::Unit::new_normalize(n))
+            .map(na::Unit::new_normalize)
             .collect();
 
         Self {
@@ -793,7 +793,7 @@ impl MeshSeparated {
 
         self.normals_computed = normals_computed
             .into_iter()
-            .map(|n| na::Unit::new_normalize(n))
+            .map(na::Unit::new_normalize)
             .collect();
     }
 }
@@ -802,7 +802,11 @@ impl Model {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
         let meshes = Object::separate_objects(parsed_obj)
             .into_iter()
-            .map(Mesh::new)
+            .map(MeshSeparated::new)
+            .map(|mut m| {
+                m.compute_normals();
+                m
+            })
             .collect();
 
         Self { meshes }
@@ -837,6 +841,44 @@ impl render::GpuTransfer for Mesh {
             })
             .collect();
         let vertices = self.vertices.iter().map(|v| v.to_raw()).collect();
+        render::TriangleBufferRaw { vertices, indices }
+    }
+}
+
+impl render::GpuTransfer for MeshSeparated {
+    type Raw = render::TriangleBufferRaw;
+
+    fn to_raw(&self) -> Self::Raw {
+        assert!(self.vertices.len() <= <u32>::MAX as usize);
+        let indices = self
+            .triangles
+            .iter()
+            .flat_map(|&(i, j, k)| [i, j, k])
+            .collect();
+        let normals = if !self.normals_specified.is_empty() {
+            &self.normals_specified
+        } else {
+            &self.normals_computed
+        };
+        dbg!(self.normals_computed.len());
+        dbg!(self.vertices.len());
+        assert!(normals.len() == self.vertices.len());
+
+        let vertices = self
+            .vertices
+            .iter()
+            .zip(normals.iter())
+            .map(|(v, n)| {
+                let basis = crate::math::orthogonal_basis_for_normal(n);
+                VertexRaw {
+                    position: (*v).into(),
+                    tex_coords: [0., 0.],
+                    normal: basis.column(0).into(),
+                    tangent: basis.column(1).into(),
+                    bitangent: basis.column(2).into(),
+                }
+            })
+            .collect();
         render::TriangleBufferRaw { vertices, indices }
     }
 }

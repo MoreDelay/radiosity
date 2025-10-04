@@ -60,3 +60,15 @@ pub fn perspective_projection(
         r3c0, r3c1, r3c2, r3c3,
     )
 }
+
+pub fn orthogonal_basis_for_normal(normal: &na::Unit<na::Vector3<f32>>) -> na::Matrix3<f32> {
+    let unit = if (**normal - *na::Vector3::x_axis()).magnitude() > 0.1 {
+        na::Vector3::x_axis()
+    } else {
+        na::Vector3::y_axis()
+    };
+    let tangent = na::Unit::new_normalize(normal.cross(&unit));
+    let bitangent = na::Unit::new_normalize(normal.cross(&tangent));
+
+    na::Matrix3::from_columns(&[**normal, *tangent, *bitangent])
+}
