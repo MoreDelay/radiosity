@@ -47,6 +47,7 @@ impl SceneState {
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let model_path = root.join("resources/sibenik/sibenik.obj");
+        // let model_path = root.join("resources/cube/cube.obj");
         let mut model_storage = model::ModelStorage::new();
         let mesh_indices = model_storage.load_meshes(&model_path).unwrap();
         assert!(!mesh_indices.is_empty(), "no mesh in obj");

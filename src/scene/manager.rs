@@ -186,6 +186,7 @@ impl<'a> Iterator for DrawMaterialIterator<'a> {
             } = mesh_info;
 
             let slice = slice.0.clone();
+            let slice = slice.start * 3..slice.end * 3;
             let draw_slice = render::DrawSlice {
                 buffer_index,
                 slice,

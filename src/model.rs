@@ -671,8 +671,7 @@ impl Mesh {
 }
 
 impl MeshSeparated {
-    #[expect(dead_code)]
-    fn new(obj: Object) -> Self {
+    fn new(obj: Object) -> Option<Self> {
         let Object {
             name,
             faces,
@@ -682,6 +681,10 @@ impl MeshSeparated {
             tex_vertices: _,
             vertex_normals: old_normals,
         } = obj;
+
+        if faces.is_empty() {
+            return None;
+        }
 
         let mut new_vertices = Vec::new();
         let mut new_normals = Vec::new();
@@ -763,13 +766,13 @@ impl MeshSeparated {
             .map(na::Unit::new_normalize)
             .collect();
 
-        Self {
+        Some(Self {
             name,
             vertices: new_vertices,
             normals_computed: Vec::new(),
             normals_specified: new_normals,
             triangles,
-        }
+        })
     }
 
     #[expect(dead_code)]
@@ -802,7 +805,7 @@ impl Model {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
         let meshes = Object::separate_objects(parsed_obj)
             .into_iter()
-            .map(MeshSeparated::new)
+            .flat_map(MeshSeparated::new)
             .map(|mut m| {
                 m.compute_normals();
                 m
@@ -855,13 +858,12 @@ impl render::GpuTransfer for MeshSeparated {
             .iter()
             .flat_map(|&(i, j, k)| [i, j, k])
             .collect();
-        let normals = if !self.normals_specified.is_empty() {
-            &self.normals_specified
-        } else {
-            &self.normals_computed
-        };
-        dbg!(self.normals_computed.len());
-        dbg!(self.vertices.len());
+        // let normals = if !self.normals_specified.is_empty() {
+        //     &self.normals_specified
+        // } else {
+        //     &self.normals_computed
+        // };
+        let normals = &self.normals_computed;
         assert!(normals.len() == self.vertices.len());
 
         let vertices = self
