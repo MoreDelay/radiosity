@@ -138,7 +138,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let in_light = is_in_light(in.world_position);
 
-    let result = ambient_color + (diffuse_color + specular_color) * in_light;
+    let result = ambient_color + (diffuse_color /* + specular_color */) * in_light;
     return vec4<f32>(result, 1.);
 
     // let dir = in.world_position - light.position;

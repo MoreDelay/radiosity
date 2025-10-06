@@ -871,7 +871,7 @@ impl render::GpuTransfer for MeshSeparated {
             .iter()
             .zip(normals.iter())
             .map(|(v, n)| {
-                let basis = crate::math::orthogonal_basis_for_normal(n);
+                let basis = crate::math::orthonormal_basis_for_normal(n);
                 VertexRaw {
                     position: (*v).into(),
                     tex_coords: [0., 0.],

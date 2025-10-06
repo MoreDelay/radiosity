@@ -61,8 +61,8 @@ pub fn perspective_projection(
     )
 }
 
-pub fn orthogonal_basis_for_normal(normal: &na::Unit<na::Vector3<f32>>) -> na::Matrix3<f32> {
-    let unit = if (**normal - *na::Vector3::x_axis()).magnitude() > 0.1 {
+pub fn orthonormal_basis_for_normal(normal: &na::Unit<na::Vector3<f32>>) -> na::Matrix3<f32> {
+    let unit = if normal.dot(&na::Vector3::x_axis()).abs() <= std::f32::consts::FRAC_1_SQRT_2 {
         na::Vector3::x_axis()
     } else {
         na::Vector3::y_axis()
