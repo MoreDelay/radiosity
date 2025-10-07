@@ -16,7 +16,7 @@ use nom::{
     sequence::{delimited, preceded},
 };
 
-use crate::model::primitives::Color;
+use crate::model::Color;
 
 use thiserror::Error;
 

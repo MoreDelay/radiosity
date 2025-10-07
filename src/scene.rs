@@ -15,7 +15,7 @@ pub struct SceneState {
     #[expect(unused)]
     model_storage: model::ModelStorage,
     manager: manager::DrawManager,
-    mesh_index: model::MeshIndex,
+    mesh_index: model::MeshIndexOld,
     #[expect(unused)]
     instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,

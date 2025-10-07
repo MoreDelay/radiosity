@@ -478,7 +478,7 @@ impl RenderState {
 
     pub fn add_material(
         &mut self,
-        material: &model::Material,
+        material: &model::MaterialOld,
         label: Option<&str>,
     ) -> MaterialBindingIndex {
         self.model_resource_storage.upload_material(
@@ -493,7 +493,11 @@ impl RenderState {
         )
     }
 
-    pub fn add_mesh_buffer(&mut self, mesh: &model::Mesh, label: Option<&str>) -> MeshBufferIndex {
+    pub fn add_mesh_buffer(
+        &mut self,
+        mesh: &model::MeshCombined,
+        label: Option<&str>,
+    ) -> MeshBufferIndex {
         self.model_resource_storage
             .upload_mesh(&self.device, mesh, label)
     }

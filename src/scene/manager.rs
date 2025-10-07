@@ -21,7 +21,7 @@ struct MeshInfo {
 #[derive(Debug)]
 struct MaterialSubscription {
     slice: FaceIndexSlice,
-    mesh_index: model::MeshIndex,
+    mesh_index: model::MeshIndexOld,
 }
 
 #[derive(Debug)]
@@ -32,8 +32,8 @@ struct MaterialInfo {
 
 pub struct DrawManager {
     render_state: Rc<RefCell<render::RenderState>>,
-    materials: HashMap<Option<model::MaterialIndex>, MaterialInfo>,
-    meshes: HashMap<model::MeshIndex, MeshInfo>,
+    materials: HashMap<Option<model::MaterialIndexOld>, MaterialInfo>,
+    meshes: HashMap<model::MeshIndexOld, MeshInfo>,
 }
 
 impl DrawManager {
@@ -53,7 +53,7 @@ impl DrawManager {
         }
     }
 
-    pub fn set_pipeline(&mut self, pipeline: render::PipelineMode, index: model::MeshIndex) {
+    pub fn set_pipeline(&mut self, pipeline: render::PipelineMode, index: model::MeshIndexOld) {
         let mesh_info = self
             .meshes
             .get_mut(&index)
@@ -64,7 +64,7 @@ impl DrawManager {
     fn add_material(
         &mut self,
         storage: &model::ModelStorage,
-        material_index: Option<model::MaterialIndex>,
+        material_index: Option<model::MaterialIndexOld>,
         label: Option<&str>,
     ) {
         if self.materials.contains_key(&material_index) {
@@ -83,7 +83,7 @@ impl DrawManager {
     pub fn add_mesh(
         &mut self,
         storage: &model::ModelStorage,
-        mesh_index: model::MeshIndex,
+        mesh_index: model::MeshIndexOld,
         instance_index: Option<render::InstanceBufferIndex>,
         label: Option<&str>,
     ) {
@@ -105,13 +105,13 @@ impl DrawManager {
         let slice = FaceIndexSlice(slice);
         let subscription = MaterialSubscription { slice, mesh_index };
         self.materials
-            .get_mut(dbg!(&mesh.material))
+            .get_mut(&mesh.material)
             .expect("made sure it exists before")
             .subscribed_meshes
             .push(subscription);
     }
 
-    pub fn get_buffer_index(&self, index: model::MeshIndex) -> Option<render::MeshBufferIndex> {
+    pub fn get_buffer_index(&self, index: model::MeshIndexOld) -> Option<render::MeshBufferIndex> {
         let mesh_info = self.meshes.get(&index);
         mesh_info.map(|info| info.buffer_index)
     }
@@ -120,7 +120,7 @@ impl DrawManager {
 #[derive(Clone)]
 pub struct DrawIterator<'a> {
     manager: &'a DrawManager,
-    iterator: hash_map::Iter<'a, Option<model::MaterialIndex>, MaterialInfo>,
+    iterator: hash_map::Iter<'a, Option<model::MaterialIndexOld>, MaterialInfo>,
 }
 
 #[derive(Clone)]

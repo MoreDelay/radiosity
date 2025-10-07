@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     ops::{Deref, Range},
-    path::Path,
+    path::{Path, PathBuf},
     sync::LazyLock,
 };
 
@@ -15,23 +15,252 @@ use crate::{
 };
 
 pub mod parser;
-pub mod primitives;
 
-// reexport
-pub use primitives::*;
+/// GLTF Buffer
+#[expect(unused)]
+pub enum Buffer {
+    Bytes { data: Vec<u8>, origin: PathBuf },
+    Path(PathBuf),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BufferIndex(usize);
+
+pub struct Buffers(Vec<Buffer>);
+
+impl Buffers {
+    #[expect(unused)]
+    pub fn get(&self, index: BufferIndex) -> Option<&Buffer> {
+        self.0.get(index.0)
+    }
+}
+
+/// GLTF BufferView
+#[expect(unused)]
+pub struct BufferView {
+    pub buffer: BufferIndex,
+    pub byte_offset: usize,
+    pub byte_length: usize,
+    pub byte_stride: usize,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct BufferViewIndex(usize);
+
+pub struct BufferViews(Vec<BufferView>);
+
+impl BufferViews {
+    #[expect(unused)]
+    pub fn get(&self, index: BufferViewIndex) -> Option<&BufferView> {
+        self.0.get(index.0)
+    }
+}
 
 #[expect(unused)]
-const NUM_INSTANCES_PER_ROW: u32 = 10;
+pub enum CompositeType {
+    Scalar,
+    Vec2,
+    Vec3,
+    Vec4,
+    Mat2,
+    Mat3,
+    Mat4,
+}
+
 #[expect(unused)]
-const SPACE_BETWEEN: f32 = 3.0;
+pub enum ComponentType {
+    I8,
+    U8,
+    I16,
+    U16,
+    U32,
+    F32,
+}
+
+/// GLTF Accessor
+#[expect(unused)]
+pub struct Accessor {
+    pub buffer_view: BufferViewIndex,
+    pub byte_offset: usize,
+    pub composite_type: CompositeType,
+    pub component_type: ComponentType,
+    pub count: usize,
+}
+
+pub struct Accessors(Vec<Accessor>);
+
+#[derive(Copy, Clone, Debug)]
+pub struct AccessorIndex(usize);
+
+impl Accessors {
+    #[expect(unused)]
+    pub fn get(&self, index: AccessorIndex) -> Option<&Accessor> {
+        self.0.get(index.0)
+    }
+}
+
+#[expect(unused)]
+pub enum TopologyType {
+    Point,
+    Line,
+    Triangle,
+}
+
+/// GLTF attributes for mesh primitives
+#[expect(unused)]
+pub struct PrimitiveAttributes {
+    pub position: AccessorIndex,
+    pub normal: Option<AccessorIndex>,
+    pub tangent: Option<AccessorIndex>,
+    tex_coords: Vec<AccessorIndex>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct TexCoordsIndex(usize);
+
+impl PrimitiveAttributes {
+    #[expect(unused)]
+    pub fn get_tex_coords(&self, index: TexCoordsIndex) -> Option<AccessorIndex> {
+        self.tex_coords.get(index.0).copied()
+    }
+}
+
+/// GLTF Entry in "primitives" array for a mesh
+#[expect(unused)]
+pub struct Primitives {
+    pub attributes: PrimitiveAttributes,
+    pub mode: TopologyType,
+    pub indices: AccessorIndex,
+    pub material: Option<usize>,
+}
+
+/// GLTF Mesh
+#[expect(unused)]
+pub struct Mesh {
+    pub primitives: Vec<Primitives>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct MeshIndex(usize);
+
+pub struct Meshes(Vec<Mesh>);
+
+impl Meshes {
+    #[expect(unused)]
+    pub fn get(&self, index: MeshIndex) -> Option<&Mesh> {
+        self.0.get(index.0)
+    }
+}
+
+/// GLTF Image
+#[expect(unused)]
+pub enum Image {
+    Path(PathBuf),
+}
+
+pub struct Images(Vec<Image>);
+
+#[derive(Copy, Clone, Debug)]
+pub struct ImageIndex(usize);
+
+impl Images {
+    #[expect(unused)]
+    pub fn get(&self, index: ImageIndex) -> Option<&Image> {
+        self.0.get(index.0)
+    }
+}
+
+/// GLTF Texture
+#[expect(unused)]
+pub struct Texture {
+    pub source: ImageIndex,
+}
+
+pub struct Textures(Vec<Texture>);
+
+#[derive(Copy, Clone, Debug)]
+pub struct TextureIndex(usize);
+
+impl Textures {
+    #[expect(unused)]
+    pub fn get(&self, index: TextureIndex) -> Option<&Texture> {
+        self.0.get(index.0)
+    }
+}
+
+#[expect(unused)]
+pub struct BaseColorTexture {
+    pub index: TextureIndex,
+    // TODO: I don't understand this one yet:
+    // pub tex_coords: Option<AccessorIndex>,
+}
+
+#[expect(unused)]
+pub struct MetallicRoughnessTexture {
+    pub index: TextureIndex,
+    // TODO: I don't understand this one yet:
+    // pub tex_coords: Option<AccessorIndex>,
+}
+
+#[expect(unused)]
+pub struct NormalTexture {
+    pub index: TextureIndex,
+    pub scale: Option<f32>,
+    // TODO: I don't understand this one yet:
+    // pub tex_coords: Option<AccessorIndex>,
+}
+
+/// GLTF Metallic Roughness Model properties
+#[expect(unused)]
+pub struct PbrMetallicRoughness {
+    pub base_color_factors: na::Vector4<f32>,
+    pub base_color_texture: Option<BaseColorTexture>,
+    pub metallic_factor: f32,
+    pub roughness_factor: f32,
+    pub metallic_roughness_texture: Option<MetallicRoughnessTexture>,
+}
+
+/// GLTF Material
+#[expect(unused)]
+pub struct Material {
+    pub pbr_metallic_roughness: PbrMetallicRoughness,
+    pub normal_texture: Option<NormalTexture>,
+    pub emmisive_factor: na::Vector3<f32>,
+}
+
+pub struct Materials(Vec<Material>);
+
+#[derive(Copy, Clone, Debug)]
+pub struct MaterialIndex(usize);
+
+impl Materials {
+    #[expect(unused)]
+    pub fn get(&self, index: MaterialIndex) -> Option<&Material> {
+        self.0.get(index.0)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Color {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
+impl From<Color> for [f32; 3] {
+    fn from(val: Color) -> Self {
+        let Color { r, g, b, .. } = val;
+        [r, g, b]
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MeshIndex {
+pub struct MeshIndexOld {
     index: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MaterialIndex {
+pub struct MaterialIndexOld {
     index: u32,
 }
 
@@ -41,8 +270,8 @@ pub struct VertexIndex {
 }
 
 pub struct ModelStorage {
-    meshes: Vec<Mesh>,
-    materials: Vec<Material>,
+    meshes: Vec<MeshCombined>,
+    materials: Vec<MaterialOld>,
 }
 
 struct ModelStorageInserter<'a> {
@@ -60,7 +289,7 @@ pub struct Instance {
 pub struct ColorTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
 #[derive(Clone, Debug)]
-pub struct NormalTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
+pub struct NormalTextureOld(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
 #[derive(Clone, Debug)]
 pub struct PhongParameters {
@@ -71,23 +300,23 @@ pub struct PhongParameters {
 }
 
 #[derive(Debug, Clone)]
-pub struct Material {
+pub struct MaterialOld {
     pub name: String,
     pub phong_params: PhongParameters,
     pub color_texture: Option<ColorTexture>,
-    pub normal_texture: Option<NormalTexture>,
+    pub normal_texture: Option<NormalTextureOld>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Triangle(VertexIndex, VertexIndex, VertexIndex);
 
-pub struct Mesh {
+pub struct MeshCombined {
     #[expect(unused)]
     pub name: Option<String>,
     pub vertices: Vec<na::Vector3<f32>>,
     #[expect(unused)]
     pub uv: Vec<na::Vector2<f32>>,
-    pub material: Option<MaterialIndex>,
+    pub material: Option<MaterialIndexOld>,
     pub normals_computed: Vec<na::Unit<na::Vector3<f32>>>,
     #[expect(unused)]
     pub normals_specified: Vec<na::Unit<na::Vector3<f32>>>,
@@ -95,7 +324,7 @@ pub struct Mesh {
 }
 
 pub struct Model {
-    pub meshes: Vec<Mesh>,
+    pub meshes: Vec<MeshCombined>,
 }
 
 impl ModelStorage {
@@ -106,26 +335,26 @@ impl ModelStorage {
         }
     }
 
-    pub fn get_mesh(&self, MeshIndex { index }: MeshIndex) -> &Mesh {
+    pub fn get_mesh(&self, MeshIndexOld { index }: MeshIndexOld) -> &MeshCombined {
         &self.meshes[index as usize]
     }
 
-    pub fn get_material(&self, index: Option<MaterialIndex>) -> &Material {
-        static DEFAULT: LazyLock<Material> = LazyLock::new(|| Material {
+    pub fn get_material(&self, index: Option<MaterialIndexOld>) -> &MaterialOld {
+        static DEFAULT: LazyLock<MaterialOld> = LazyLock::new(|| MaterialOld {
             name: String::from("Default"),
             phong_params: Default::default(),
             color_texture: None,
             normal_texture: None,
         });
 
-        if let Some(MaterialIndex { index }) = index {
+        if let Some(MaterialIndexOld { index }) = index {
             &self.materials[index as usize]
         } else {
             &DEFAULT
         }
     }
 
-    pub fn load_meshes(&mut self, path: &Path) -> anyhow::Result<Vec<MeshIndex>> {
+    pub fn load_meshes(&mut self, path: &Path) -> anyhow::Result<Vec<MeshIndexOld>> {
         let mut inserter = ModelStorageInserter {
             root_dir: path.parent().expect("file should have a parent directory"),
             storage: self,
@@ -136,7 +365,7 @@ impl ModelStorage {
 
         let first_new_index = self.meshes.len() as u32;
         let new_indices = (0..model.meshes.len() as u32)
-            .map(|v| MeshIndex {
+            .map(|v| MeshIndexOld {
                 index: v + first_new_index,
             })
             .collect();
@@ -160,7 +389,7 @@ impl<'a> parser::MtlManager for ModelStorageInserter<'a> {
             if already_loaded {
                 continue;
             }
-            let new_material = Material::load(self.root_dir, &mtl).unwrap();
+            let new_material = MaterialOld::load(self.root_dir, &mtl).unwrap();
             self.storage.materials.push(new_material);
         }
 
@@ -176,7 +405,7 @@ impl<'a> parser::MtlManager for ModelStorageInserter<'a> {
     }
 }
 
-impl Material {
+impl MaterialOld {
     pub fn load(root: &Path, mtl: &mtl::ParsedMtl) -> anyhow::Result<Self> {
         let color_texture = match &mtl.map_kd {
             None => None,
@@ -191,7 +420,7 @@ impl Material {
             Some(mtl::MtlMapBump(path)) => {
                 let path = root.join(path);
                 let image = ImageReader::open(path)?.decode()?;
-                Some(NormalTexture(image.into()))
+                Some(NormalTextureOld(image.into()))
             }
         };
 
@@ -421,7 +650,7 @@ impl Object {
     }
 }
 
-impl Mesh {
+impl MeshCombined {
     fn new(obj: Object) -> Option<Self> {
         let Object {
             name,
@@ -441,7 +670,6 @@ impl Mesh {
 
         let mut triplet_to_index = HashMap::<obj::FTriplet, u32>::new();
         let mut has_normals = true;
-        dbg!(&mtls);
         let mut has_tex = mtls.len() == 1; // only consider meshes with single material
 
         for obj::F { triplets } in faces.iter() {
@@ -539,7 +767,7 @@ impl Mesh {
                 assert!(face_ranges.slices.len() == 1);
                 let Range { start, end } = face_ranges.slices.into_iter().next().unwrap();
                 assert!(start == 0 && end as usize == n_vertices);
-                index.map(|index| MaterialIndex { index })
+                index.map(|index| MaterialIndexOld { index })
             })
             .flatten();
 
@@ -583,7 +811,7 @@ impl Model {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
         let meshes = Object::separate_objects(parsed_obj)
             .into_iter()
-            .flat_map(Mesh::new)
+            .flat_map(MeshCombined::new)
             .map(|mut m| {
                 m.compute_normals();
                 m
@@ -605,7 +833,7 @@ impl Default for PhongParameters {
     }
 }
 
-impl render::GpuTransfer for Mesh {
+impl render::GpuTransfer for MeshCombined {
     type Raw = render::TriangleBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
@@ -668,7 +896,7 @@ impl<'a> render::GpuTransferRef<'a> for ColorTexture {
     }
 }
 
-impl<'a> render::GpuTransferRef<'a> for NormalTexture {
+impl<'a> render::GpuTransferRef<'a> for NormalTextureOld {
     type Raw = render::TextureRaw<'a>;
 
     fn to_raw(&'a self) -> render::TextureRaw<'a> {
@@ -717,7 +945,7 @@ impl render::GpuTransfer for PhongParameters {
     }
 }
 
-impl Deref for MeshIndex {
+impl Deref for MeshIndexOld {
     type Target = u32;
 
     fn deref(&self) -> &Self::Target {
@@ -725,7 +953,7 @@ impl Deref for MeshIndex {
     }
 }
 
-impl Deref for MaterialIndex {
+impl Deref for MaterialIndexOld {
     type Target = u32;
 
     fn deref(&self) -> &Self::Target {
