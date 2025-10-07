@@ -393,33 +393,9 @@ impl RenderState {
                 } = draw_slice;
 
                 match pipeline_mode {
-                    PipelineMode::Flat => {
-                        let pipeline = self.texture_pipelines.get_flat().deref();
-                        let texture = &self.shadow_binding.cube_bind;
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, texture, &[]);
-                    }
-                    PipelineMode::Color => {
-                        let pipeline = self.texture_pipelines.get_color().deref();
-                        let color_bind_group = material
-                            .color
-                            .as_ref()
-                            .expect("requested pipeline requires corresponding texture")
-                            .deref();
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, color_bind_group, &[]);
-                    }
-                    PipelineMode::Normal => {
-                        let pipeline = self.texture_pipelines.get_normal().deref();
-                        let normal_bind_group = material
-                            .normal
-                            .as_ref()
-                            .expect("requested pipeline requires corresponding texture")
-                            .deref();
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, normal_bind_group, &[]);
-                    }
-                    PipelineMode::ColorNormal => {
+                    PipelineMode::ColorNormal
+                        if material.color.is_some() && material.normal.is_some() =>
+                    {
                         let pipeline = self.texture_pipelines.get_color_normal().deref();
                         let color_bind_group = material
                             .color
@@ -434,6 +410,32 @@ impl RenderState {
                         render_pass.set_pipeline(pipeline);
                         render_pass.set_bind_group(3, color_bind_group, &[]);
                         render_pass.set_bind_group(4, normal_bind_group, &[]);
+                    }
+                    PipelineMode::Color if material.color.is_some() => {
+                        let pipeline = self.texture_pipelines.get_color().deref();
+                        let color_bind_group = material
+                            .color
+                            .as_ref()
+                            .expect("requested pipeline requires corresponding texture")
+                            .deref();
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, color_bind_group, &[]);
+                    }
+                    PipelineMode::Normal if material.normal.is_some() => {
+                        let pipeline = self.texture_pipelines.get_normal().deref();
+                        let normal_bind_group = material
+                            .normal
+                            .as_ref()
+                            .expect("requested pipeline requires corresponding texture")
+                            .deref();
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, normal_bind_group, &[]);
+                    }
+                    _ => {
+                        let pipeline = self.texture_pipelines.get_flat().deref();
+                        let texture = &self.shadow_binding.cube_bind;
+                        render_pass.set_pipeline(pipeline);
+                        render_pass.set_bind_group(3, texture, &[]);
                     }
                 }
 
