@@ -7,11 +7,11 @@ use std::{
 
 use bitvec::prelude::*;
 use image::ImageReader;
-use nalgebra::{self as na, Unit};
+use nalgebra as na;
 
 use crate::{
     model::parser::{mtl, obj},
-    render::{self, VertexRaw},
+    render,
 };
 
 pub mod parser;
@@ -41,7 +41,7 @@ pub struct VertexIndex {
 }
 
 pub struct ModelStorage {
-    meshes: Vec<MeshSeparated>,
+    meshes: Vec<Mesh>,
     materials: Vec<Material>,
 }
 
@@ -78,33 +78,24 @@ pub struct Material {
     pub normal_texture: Option<NormalTexture>,
 }
 
-#[derive(Debug, Clone)]
-pub struct MaterialRanges {
-    pub ranges: Vec<Range<u32>>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Triangle(VertexIndex, VertexIndex, VertexIndex);
 
 pub struct Mesh {
     #[expect(unused)]
     pub name: Option<String>,
-    pub vertices: Vec<Vertex>,
-    pub triangles: Vec<Triangle>,
-    pub mtl_ranges: HashMap<Option<MaterialIndex>, MaterialRanges>,
-}
-
-pub struct MeshSeparated {
-    #[expect(unused)]
-    pub name: Option<String>,
     pub vertices: Vec<na::Vector3<f32>>,
+    #[expect(unused)]
+    pub uv: Vec<na::Vector2<f32>>,
+    pub material: Option<MaterialIndex>,
     pub normals_computed: Vec<na::Unit<na::Vector3<f32>>>,
+    #[expect(unused)]
     pub normals_specified: Vec<na::Unit<na::Vector3<f32>>>,
     pub triangles: Vec<(u32, u32, u32)>,
 }
 
 pub struct Model {
-    pub meshes: Vec<MeshSeparated>,
+    pub meshes: Vec<Mesh>,
 }
 
 impl ModelStorage {
@@ -115,7 +106,7 @@ impl ModelStorage {
         }
     }
 
-    pub fn get_mesh(&self, MeshIndex { index }: MeshIndex) -> &MeshSeparated {
+    pub fn get_mesh(&self, MeshIndex { index }: MeshIndex) -> &Mesh {
         &self.meshes[index as usize]
     }
 
@@ -430,255 +421,15 @@ impl Object {
     }
 }
 
-struct TempVertex {
-    position: na::Vector3<f32>,
-    tex_coords: na::Vector2<f32>,
-    normal: na::Vector3<f32>,
-    tangent: na::Vector3<f32>,
-    bitangent: na::Vector3<f32>,
-}
-
-struct InterleavedVertices {
-    vertices: Vec<TempVertex>,
-    map: HashMap<obj::FTriplet, u32>,
-}
-
-impl InterleavedVertices {
-    fn new(faces: &[obj::F], geo: &[obj::V], tex: &[obj::Vt], norm: &[obj::Vn]) -> Self {
-        let mut vertices = Vec::new();
-        let mut map = HashMap::<obj::FTriplet, u32>::new();
-
-        for obj::F { triplets } in faces.iter() {
-            for &triplet in triplets.iter() {
-                use std::collections::hash_map::Entry;
-
-                match map.entry(triplet) {
-                    Entry::Occupied(_) => (), // already present
-                    Entry::Vacant(entry) => {
-                        let position = {
-                            let obj::V { x, y, z, w: _ } = geo[triplet.index_vertex as usize];
-                            na::Vector3::new(x, y, z)
-                        };
-                        let tex_coords = match triplet.index_texture {
-                            Some(index_texture) => {
-                                let obj::Vt { u, v, w: _ } = tex[index_texture as usize];
-                                na::Vector2::new(u, v)
-                            }
-                            None => na::Vector2::zeros(),
-                        };
-                        let normal = match triplet.index_normal {
-                            Some(index_normal) => {
-                                let obj::Vn { i, j, k } = norm[index_normal as usize];
-                                na::Vector3::new(i, j, k)
-                            }
-                            None => na::Vector3::zeros(),
-                        };
-                        let new_v = TempVertex {
-                            position,
-                            tex_coords,
-                            normal,
-                            tangent: na::Vector3::zeros(),
-                            bitangent: na::Vector3::zeros(),
-                        };
-
-                        let index = vertices.len() as u32;
-                        vertices.push(new_v);
-                        entry.insert(index);
-                    }
-                }
-            }
-        }
-
-        Self { vertices, map }
-    }
-}
-
 impl Mesh {
-    fn new(obj: Object) -> Self {
-        let Object {
-            name,
-            faces,
-            groups: _,
-            mtls: old_ranges,
-            geo_vertices,
-            tex_vertices,
-            vertex_normals,
-        } = obj;
-
-        let mut interleaved =
-            InterleavedVertices::new(&faces, &geo_vertices, &tex_vertices, &vertex_normals);
-
-        // make all faces to triangles naively, and update ranges correspondingly
-        struct ActiveMaterial {
-            index: Option<u32>,
-            range: Range<u32>,
-            new_start: u32,
-        }
-
-        let find_next_active_material = |face_index: u32| -> ActiveMaterial {
-            let (index, range) = old_ranges
-                .iter()
-                .find_map(|(index, face_ranges)| {
-                    face_ranges
-                        .slices
-                        .iter()
-                        .find(|Range { start, .. }| *start == face_index)
-                        .map(|slice| (*index, slice.clone()))
-                })
-                .expect("all faces must be assigned to a material");
-
-            ActiveMaterial {
-                index,
-                range,
-                new_start: face_index,
-            }
-        };
-
-        let mut new_ranges: HashMap<Option<MaterialIndex>, MaterialRanges> = HashMap::new();
-        let mut active_mtl = find_next_active_material(0);
-        let mut triangles = Vec::new();
-        for (old_index, face) in faces.into_iter().enumerate() {
-            let old_index = old_index as u32;
-            assert!(face.triplets.len() >= 3, "too few vertices, not a face!");
-
-            if active_mtl.range.end == old_index {
-                // update last material and find next one
-                if active_mtl.new_start != old_index {
-                    let new_slice = active_mtl.new_start..triangles.len() as u32;
-                    let index = active_mtl.index.map(|index| MaterialIndex { index });
-                    new_ranges
-                        .entry(index)
-                        .and_modify(|e| e.ranges.push(new_slice.clone()))
-                        .or_insert_with(|| MaterialRanges {
-                            ranges: vec![new_slice],
-                        });
-                }
-
-                active_mtl = find_next_active_material(old_index);
-            }
-
-            let ([first], other) = face.triplets.split_at(1) else {
-                unreachable!("checked above");
-            };
-            let first = VertexIndex {
-                index: interleaved.map[first],
-            };
-            let new_triangles = other
-                .windows(2)
-                .flat_map(<&[obj::FTriplet; 2]>::try_from)
-                .map(|[second, third]| {
-                    let second = VertexIndex {
-                        index: interleaved.map[second],
-                    };
-                    let third = VertexIndex {
-                        index: interleaved.map[third],
-                    };
-                    Triangle(first, second, third)
-                });
-            triangles.extend(new_triangles);
-        }
-
-        // add last texture
-        let last_slice = active_mtl.new_start..triangles.len() as u32;
-        let index = active_mtl.index.map(|index| MaterialIndex { index });
-        new_ranges
-            .entry(index)
-            .and_modify(|e| e.ranges.push(last_slice.clone()))
-            .or_insert_with(|| MaterialRanges {
-                ranges: vec![last_slice],
-            });
-
-        // compute normals and tangents
-        for Triangle(first, second, third) in triangles.iter() {
-            let normal =
-                if interleaved.vertices[first.index as usize].normal == na::Vector3::zeros() {
-                    let first = interleaved.vertices[first.index as usize].position;
-                    let second = interleaved.vertices[second.index as usize].position;
-                    let third = interleaved.vertices[third.index as usize].position;
-
-                    let v0 = second - first;
-                    let v1 = third - first;
-                    Some(na::Unit::new_normalize(v0.cross(&v1)))
-                } else {
-                    None
-                };
-
-            for VertexIndex { index: vertex } in [first, second, third] {
-                let normal =
-                    if interleaved.vertices[first.index as usize].normal == na::Vector3::zeros() {
-                        normal.expect("computed before")
-                    } else {
-                        let normal = interleaved.vertices[*vertex as usize].normal;
-                        na::Unit::new_normalize(normal)
-                    };
-
-                let unit = if (*normal - *na::Vector3::x_axis()).magnitude() > 0.1 {
-                    na::Vector3::x_axis()
-                } else {
-                    na::Vector3::y_axis()
-                };
-                let tangent = Unit::new_normalize(normal.cross(&unit));
-                let bitangent = Unit::new_normalize(normal.cross(&tangent));
-
-                interleaved.vertices[*vertex as usize].normal = *normal;
-                interleaved.vertices[*vertex as usize].tangent = *tangent;
-                interleaved.vertices[*vertex as usize].bitangent = *bitangent;
-            }
-        }
-
-        let vertices = interleaved
-            .vertices
-            .into_iter()
-            .map(|v: TempVertex| {
-                let TempVertex {
-                    position,
-                    tex_coords,
-                    normal,
-                    tangent,
-                    bitangent,
-                } = v;
-                Vertex {
-                    position,
-                    tex_coords,
-                    // normalized above
-                    normal: na::Unit::new_unchecked(normal),
-                    tangent: na::Unit::new_unchecked(tangent),
-                    bitangent: na::Unit::new_unchecked(bitangent),
-                }
-            })
-            .collect();
-
-        // TODO: remove:
-        let new_ranges = {
-            let range = 0..triangles.len() as u32;
-            let range = MaterialRanges {
-                ranges: vec![range],
-            };
-            let mut new_ranges = HashMap::new();
-            // let index = Some(MaterialIndex { index: 10 as u32 });
-            let index = None;
-            new_ranges.insert(index, range);
-            new_ranges
-        };
-
-        Self {
-            name,
-            triangles,
-            mtl_ranges: new_ranges,
-            vertices,
-        }
-    }
-}
-
-impl MeshSeparated {
     fn new(obj: Object) -> Option<Self> {
         let Object {
             name,
             faces,
             groups: _,
-            mtls: _,
+            mtls,
             geo_vertices: old_geo,
-            tex_vertices: _,
+            tex_vertices: old_tex,
             vertex_normals: old_normals,
         } = obj;
 
@@ -686,57 +437,69 @@ impl MeshSeparated {
             return None;
         }
 
-        let mut new_vertices = Vec::new();
-        let mut new_normals = Vec::new();
-        let mut triplet_to_index = HashMap::<obj::FTriplet, u32>::new();
-
-        let mut missing_normal = false;
-
         use std::collections::hash_map::Entry;
+
+        let mut triplet_to_index = HashMap::<obj::FTriplet, u32>::new();
+        let mut has_normals = true;
+        dbg!(&mtls);
+        let mut has_tex = mtls.len() == 1; // only consider meshes with single material
 
         for obj::F { triplets } in faces.iter() {
             for &triplet in triplets.iter() {
-                missing_normal |= triplet.index_normal.is_none();
+                has_normals &= triplet.index_normal.is_some();
+                has_tex &= triplet.index_texture.is_some();
+
+                let index = triplet_to_index.len() as u32;
 
                 match triplet_to_index.entry(triplet) {
                     Entry::Occupied(_) => (), // already present
                     Entry::Vacant(entry) => {
-                        let old_index = triplet.index_vertex as usize;
-                        let position = {
-                            let obj::V { x, y, z, w: _ } = old_geo[old_index];
-                            na::Vector3::new(x, y, z)
-                        };
-
-                        let index = new_vertices.len() as u32;
-                        new_vertices.push(position);
                         entry.insert(index);
                     }
                 }
             }
         }
 
-        if !missing_normal {
-            new_normals.resize_with(new_vertices.len(), na::Vector3::zeros);
+        let n_vertices = triplet_to_index.len();
 
-            for obj::F { triplets } in faces.iter() {
-                for &triplet in triplets.iter() {
-                    match triplet_to_index.entry(triplet) {
-                        Entry::Occupied(entry) => {
-                            let old_index =
-                                triplet.index_normal.expect("checked previously") as usize;
-                            let normal = {
-                                let obj::Vn { i, j, k } = old_normals[old_index];
-                                na::Vector3::new(i, j, k)
-                            };
+        let mut new_vertices = Vec::with_capacity(n_vertices);
+        new_vertices.resize_with(n_vertices, || na::Vector3::zeros());
 
-                            let new_index = *entry.get() as usize;
-                            new_normals[new_index] = normal;
-                        }
-                        Entry::Vacant(_) => {
-                            unreachable!("all geo/normal combinations should have an index here");
-                        }
-                    }
-                }
+        let mut new_normals = has_normals.then(|| {
+            let mut vec = Vec::with_capacity(n_vertices);
+            vec.resize_with(n_vertices, || na::Vector3::zeros());
+            vec
+        });
+
+        let mut new_tex = has_tex.then(|| {
+            let mut vec = Vec::with_capacity(n_vertices);
+            vec.resize_with(n_vertices, || na::Vector2::zeros());
+            vec
+        });
+
+        for (triplet, index) in triplet_to_index.iter() {
+            let &obj::FTriplet {
+                index_vertex,
+                index_texture,
+                index_normal,
+            } = triplet;
+
+            let obj::V { x, y, z, w: _ } = old_geo[index_vertex as usize];
+            let position = na::Vector3::new(x, y, z);
+            new_vertices[*index as usize] = position;
+
+            if let Some(new_normals) = new_normals.as_mut() {
+                let index_normal = index_normal.expect("checked before");
+                let obj::Vn { i, j, k } = old_normals[index_normal as usize];
+                let normal = na::Vector3::new(i, j, k);
+                new_normals[*index as usize] = normal;
+            }
+
+            if let Some(new_tex) = new_tex.as_mut() {
+                let index_texture = index_texture.expect("checked before");
+                let obj::Vt { u, v, w: _ } = old_tex[index_texture as usize];
+                let uv = na::Vector2::new(u, v);
+                new_tex[*index as usize] = uv;
             }
         }
 
@@ -762,20 +525,35 @@ impl MeshSeparated {
             .collect::<Vec<_>>();
 
         let new_normals = new_normals
+            .unwrap_or_else(|| Vec::new())
             .into_iter()
             .map(na::Unit::new_normalize)
             .collect();
 
+        let new_tex = new_tex.unwrap_or_else(|| Vec::new());
+
+        let material = has_tex
+            .then(|| {
+                assert!(mtls.len() == 1);
+                let (index, face_ranges) = mtls.into_iter().next().unwrap();
+                assert!(face_ranges.slices.len() == 1);
+                let Range { start, end } = face_ranges.slices.into_iter().next().unwrap();
+                assert!(start == 0 && end as usize == n_vertices);
+                index.map(|index| MaterialIndex { index })
+            })
+            .flatten();
+
         Some(Self {
             name,
             vertices: new_vertices,
+            uv: new_tex,
+            material,
             normals_computed: Vec::new(),
             normals_specified: new_normals,
             triangles,
         })
     }
 
-    #[expect(dead_code)]
     fn compute_normals(&mut self) {
         let mut normals_computed = Vec::new();
         normals_computed.resize_with(self.vertices.len(), na::Vector3::zeros);
@@ -805,7 +583,7 @@ impl Model {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
         let meshes = Object::separate_objects(parsed_obj)
             .into_iter()
-            .flat_map(MeshSeparated::new)
+            .flat_map(Mesh::new)
             .map(|mut m| {
                 m.compute_normals();
                 m
@@ -832,27 +610,6 @@ impl render::GpuTransfer for Mesh {
 
     fn to_raw(&self) -> Self::Raw {
         assert!(self.vertices.len() <= <u32>::MAX as usize);
-        let upper_bound = self.vertices.len() as u32;
-        let indices = self
-            .triangles
-            .iter()
-            .flat_map(|&Triangle(i, j, k)| {
-                assert!(i.index < upper_bound);
-                assert!(j.index < upper_bound);
-                assert!(k.index < upper_bound);
-                [i.index, j.index, k.index]
-            })
-            .collect();
-        let vertices = self.vertices.iter().map(|v| v.to_raw()).collect();
-        render::TriangleBufferRaw { vertices, indices }
-    }
-}
-
-impl render::GpuTransfer for MeshSeparated {
-    type Raw = render::TriangleBufferRaw;
-
-    fn to_raw(&self) -> Self::Raw {
-        assert!(self.vertices.len() <= <u32>::MAX as usize);
         let indices = self
             .triangles
             .iter()
@@ -872,7 +629,7 @@ impl render::GpuTransfer for MeshSeparated {
             .zip(normals.iter())
             .map(|(v, n)| {
                 let basis = crate::math::orthonormal_basis_for_normal(n);
-                VertexRaw {
+                render::VertexRaw {
                     position: (*v).into(),
                     tex_coords: [0., 0.],
                     normal: basis.column(0).into(),

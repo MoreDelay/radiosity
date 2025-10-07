@@ -493,11 +493,7 @@ impl RenderState {
         )
     }
 
-    pub fn add_mesh_buffer(
-        &mut self,
-        mesh: &model::MeshSeparated,
-        label: Option<&str>,
-    ) -> MeshBufferIndex {
+    pub fn add_mesh_buffer(&mut self, mesh: &model::Mesh, label: Option<&str>) -> MeshBufferIndex {
         self.model_resource_storage
             .upload_mesh(&self.device, mesh, label)
     }

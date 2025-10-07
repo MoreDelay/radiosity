@@ -99,33 +99,16 @@ impl DrawManager {
         };
         self.meshes.insert(mesh_index, mesh_info);
 
-        self.add_material(storage, None, label);
+        self.add_material(storage, mesh.material, label);
 
         let slice = 0..mesh.triangles.len() as u32;
         let slice = FaceIndexSlice(slice);
         let subscription = MaterialSubscription { slice, mesh_index };
         self.materials
-            .get_mut(&None)
+            .get_mut(dbg!(&mesh.material))
             .expect("made sure it exists before")
             .subscribed_meshes
             .push(subscription);
-
-        // for (&mtl_index, model::MaterialRanges { ranges }) in mesh.mtl_ranges.iter() {
-        //     let label = label.map(|l| format!("{l}-Material"));
-        //     self.add_material(storage, mtl_index, label.as_deref());
-        //
-        //     for range in ranges.iter() {
-        //         let start = range.start;
-        //         let end = range.end;
-        //         let slice = FaceIndexSlice(start * 3..end * 3);
-        //         let subscription = MaterialSubscription { slice, mesh_index };
-        //         let material_info = self
-        //             .materials
-        //             .get_mut(&mtl_index)
-        //             .expect("made sure it exists before");
-        //         material_info.subscribed_meshes.push(subscription);
-        //     }
-        // }
     }
 
     pub fn get_buffer_index(&self, index: model::MeshIndex) -> Option<render::MeshBufferIndex> {
