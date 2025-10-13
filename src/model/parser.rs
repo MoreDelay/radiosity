@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use nom::branch::alt;
@@ -8,20 +9,23 @@ use nom::{IResult, Parser};
 pub mod mtl;
 pub mod obj;
 
+pub use mtl::ParsedMtl;
+pub use obj::ParsedObj;
+
 pub trait MtlManager {
     /// Request to load the provided MTL library. The argument is just the provided name within the
     /// file which typically is concatenated with the parent directory of the original obj file.
-    fn request_mtl_load(&mut self, name: &str) -> Result<Vec<String>, mtl::MtlError>;
+    fn request_mtl_load(&mut self, name: &str) -> Result<HashSet<String>, mtl::MtlError>;
 
     /// Given the name of a material, this call should return the index to the material that
     /// uniquely identifies the corresponding material for this manager.
     fn request_mtl_index(&self, name: &str) -> Option<u32>;
 }
 
-pub struct SimpleMtlManager {
+struct SimpleMtlManager {
     root_dir: PathBuf,
     materials: Vec<mtl::ParsedMtl>,
-    names: Vec<String>,
+    name_mapping: HashMap<String, u32>,
 }
 
 #[expect(unused)]
@@ -30,7 +34,7 @@ impl SimpleMtlManager {
         Self {
             root_dir,
             materials: Vec::new(),
-            names: Vec::new(),
+            name_mapping: HashMap::new(),
         }
     }
 
@@ -44,30 +48,30 @@ impl SimpleMtlManager {
 }
 
 impl MtlManager for SimpleMtlManager {
-    fn request_mtl_load(&mut self, name: &str) -> Result<Vec<String>, mtl::MtlError> {
+    fn request_mtl_load(&mut self, name: &str) -> Result<HashSet<String>, mtl::MtlError> {
         let path = self.root_dir.join(name);
         let loaded_mtls = mtl::parse_mtl(&path)?;
-        let mut mtls_in_this_lib = Vec::new();
+        let mut mtls_in_this_lib = HashSet::new();
 
         for mtl in loaded_mtls {
-            mtls_in_this_lib.push(mtl.name.clone());
+            mtls_in_this_lib.insert(mtl.name.clone());
 
-            let already_loaded = self.names.iter().any(|n| n == &mtl.name);
-            if already_loaded {
-                continue;
+            use std::collections::hash_map::Entry;
+            match self.name_mapping.entry(mtl.name.clone()) {
+                Entry::Occupied(_) => continue,
+                Entry::Vacant(entry) => {
+                    let index = self.materials.len() as u32;
+                    entry.insert(index);
+                    self.materials.push(mtl);
+                }
             }
-            self.names.push(mtl.name.clone());
-            self.materials.push(mtl);
         }
 
         Ok(mtls_in_this_lib)
     }
 
     fn request_mtl_index(&self, name: &str) -> Option<u32> {
-        self.names
-            .iter()
-            .enumerate()
-            .find_map(|(i, n)| (n == name).then_some(i as u32))
+        self.name_mapping.get(name).copied()
     }
 }
 

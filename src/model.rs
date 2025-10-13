@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, Range},
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -205,7 +205,7 @@ pub struct MetallicRoughnessTexture {
 #[expect(unused)]
 pub struct NormalTexture {
     pub index: TextureIndex,
-    pub scale: Option<f32>,
+    pub scale: f32,
     // TODO: I don't understand this one yet:
     // pub tex_coords: Option<AccessorIndex>,
 }
@@ -223,9 +223,83 @@ pub struct PbrMetallicRoughness {
 /// GLTF Material
 #[expect(unused)]
 pub struct Material {
+    pub name: Option<String>,
     pub pbr_metallic_roughness: PbrMetallicRoughness,
     pub normal_texture: Option<NormalTexture>,
     pub emmisive_factor: na::Vector3<f32>,
+}
+
+impl Material {
+    #[expect(unused)]
+    pub fn from_mtl(mtl: parser::ParsedMtl, path_map: HashMap<PathBuf, TextureIndex>) -> Self {
+        let mtl::ParsedMtl {
+            name,
+            ka,
+            kd,
+            ks,
+            ns,
+            illum,
+            map_ka,
+            map_bump,
+            map_kd,
+            ..
+        } = mtl;
+
+        let base_color_factors = if let Some(mtl::MtlKd(r, g, b)) = kd {
+            [r, g, b, 1.].into()
+        } else if let Some(mtl::MtlKa(r, g, b)) = ka {
+            [r, g, b, 1.].into()
+        } else {
+            [1., 1., 1., 1.].into()
+        };
+
+        let base_color_texture = map_kd
+            .map(|mtl::MtlMapKd(path)| path)
+            .or(map_ka.map(|mtl::MtlMapKa(path)| path))
+            .map(|path| {
+                let index = *path_map
+                    .get(&path)
+                    .expect("used path must be present in mapping");
+                BaseColorTexture { index }
+            });
+
+        let roughness_factor = ns
+            .map(|mtl::MtlNs(ns)| {
+                if ns <= 1. {
+                    return 1.;
+                }
+
+                const NS_MAX: f32 = 1000.;
+
+                let ns = ns.clamp(1., NS_MAX);
+                let ns = ns.ln();
+                let ns = ns / NS_MAX.ln();
+                1. - ns
+            })
+            .unwrap_or(1.);
+
+        let pbr_metallic_roughness = PbrMetallicRoughness {
+            base_color_factors,
+            base_color_texture,
+            metallic_factor: 1.,
+            roughness_factor,
+            metallic_roughness_texture: None,
+        };
+
+        let normal_texture = map_bump.map(|mtl::MtlMapBump(path)| {
+            let index = *path_map
+                .get(&path)
+                .expect("used path must be present in mapping");
+            NormalTexture { index, scale: 1. }
+        });
+
+        Self {
+            name: Some(name),
+            pbr_metallic_roughness,
+            normal_texture,
+            emmisive_factor: [0., 0., 0.].into(),
+        }
+    }
 }
 
 pub struct Materials(Vec<Material>);
@@ -237,6 +311,25 @@ impl Materials {
     #[expect(unused)]
     pub fn get(&self, index: MaterialIndex) -> Option<&Material> {
         self.0.get(index.0)
+    }
+}
+
+/// GLTF collection of all referenced data
+#[expect(unused)]
+pub struct Model {
+    pub buffers: Buffers,
+    pub buffer_views: BufferViews,
+    pub accessors: Accessors,
+    pub meshes: Meshes,
+    pub materials: Materials,
+    pub textures: Textures,
+    pub images: Images,
+}
+
+impl Model {
+    #[expect(unused)]
+    pub fn new(obj: parser::ParsedObj, mtl: Vec<parser::ParsedMtl>) -> Self {
+        todo!()
     }
 }
 
@@ -323,7 +416,7 @@ pub struct MeshCombined {
     pub triangles: Vec<(u32, u32, u32)>,
 }
 
-pub struct Model {
+pub struct ModelOld {
     pub meshes: Vec<MeshCombined>,
 }
 
@@ -361,7 +454,7 @@ impl ModelStorage {
         };
 
         let loaded_obj = obj::load_obj(path, &mut inserter)?;
-        let model = Model::new(loaded_obj);
+        let model = ModelOld::new(loaded_obj);
 
         let first_new_index = self.meshes.len() as u32;
         let new_indices = (0..model.meshes.len() as u32)
@@ -376,14 +469,17 @@ impl ModelStorage {
 }
 
 impl<'a> parser::MtlManager for ModelStorageInserter<'a> {
-    fn request_mtl_load(&mut self, filename: &str) -> Result<Vec<String>, parser::mtl::MtlError> {
+    fn request_mtl_load(
+        &mut self,
+        filename: &str,
+    ) -> Result<HashSet<String>, parser::mtl::MtlError> {
         let path = self.root_dir.join(filename);
         let loaded_mtls = parser::mtl::parse_mtl(&path)?;
-        let mut mtls_in_this_lib = Vec::new();
+        let mut mtls_in_this_lib = HashSet::new();
 
         for mtl in loaded_mtls {
             assert!(!mtls_in_this_lib.contains(&mtl.name), "duplicate material");
-            mtls_in_this_lib.push(mtl.name.clone());
+            mtls_in_this_lib.insert(mtl.name.clone());
 
             let already_loaded = self.storage.materials.iter().any(|m| m.name == mtl.name);
             if already_loaded {
@@ -807,7 +903,7 @@ impl MeshCombined {
     }
 }
 
-impl Model {
+impl ModelOld {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
         let meshes = Object::separate_objects(parsed_obj)
             .into_iter()

@@ -100,7 +100,6 @@ pub enum MtlIllum {
     InvisibleSurfaceShadows,
 }
 
-#[expect(unused)]
 #[derive(Debug, Clone)]
 pub struct MtlMapKa(pub PathBuf);
 
