@@ -8,6 +8,7 @@ use std::{
 use bitvec::prelude::*;
 use image::ImageReader;
 use nalgebra as na;
+use zerocopy::IntoBytes;
 
 use crate::{
     model::parser::{mtl, obj},
@@ -19,8 +20,14 @@ pub mod parser;
 /// GLTF Buffer
 #[expect(unused)]
 pub enum Buffer {
-    Bytes { data: Vec<u8>, origin: PathBuf },
-    Path(PathBuf),
+    Bytes {
+        data: Vec<u8>,
+        origin: Option<PathBuf>,
+    },
+    Path {
+        path: PathBuf,
+        bytes_length: u32,
+    },
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -170,9 +177,54 @@ impl Images {
     }
 }
 
+#[expect(unused)]
+pub enum Filter {
+    Nearest,
+    Linear,
+}
+
+#[expect(unused)]
+pub struct MinFilter {
+    pub texture: Filter,
+    pub mipmap: Option<Filter>,
+}
+
+#[expect(unused)]
+pub enum WrapMode {
+    ClampToEdge,
+    MirroredRepeat,
+    Repeat,
+}
+
+/// GLTF Sampler
+#[expect(unused)]
+pub struct Sampler {
+    pub mag_filter: Filter,
+    pub min_filter: MinFilter,
+    pub wrap_s: WrapMode,
+    pub wrap_t: WrapMode,
+    pub name: Option<String>,
+}
+
+impl Default for Sampler {
+    fn default() -> Self {
+        Self {
+            mag_filter: Filter::Linear,
+            min_filter: MinFilter {
+                texture: Filter::Linear,
+                mipmap: Some(Filter::Linear),
+            },
+            wrap_s: WrapMode::Repeat,
+            wrap_t: WrapMode::Repeat,
+            name: None,
+        }
+    }
+}
+
 /// GLTF Texture
 #[expect(unused)]
 pub struct Texture {
+    pub sampler: Sampler,
     pub source: ImageIndex,
 }
 
@@ -182,6 +234,52 @@ pub struct Textures(Vec<Texture>);
 pub struct TextureIndex(usize);
 
 impl Textures {
+    fn from_mtl(mtls: &[parser::ParsedMtl]) -> (Images, Textures, HashMap<PathBuf, TextureIndex>) {
+        let mut images = Images(Vec::new());
+        let mut textures = Textures(Vec::new());
+        let mut texture_map: HashMap<PathBuf, TextureIndex> = HashMap::new();
+
+        let mut add_to_textures = |path: &Path| {
+            use std::collections::hash_map::Entry;
+
+            let entry = match texture_map.entry(path.to_path_buf()) {
+                Entry::Occupied(_) => return,
+                Entry::Vacant(entry) => entry,
+            };
+
+            let n_images = images.0.len();
+            assert_eq!(n_images, textures.0.len());
+
+            // mtl can not specify sampler, so images and textures have 1:1 correspondence
+            let image_index = ImageIndex(n_images);
+            let texture_index = TextureIndex(n_images);
+
+            let image = Image::Path(path.to_path_buf());
+            let texture = Texture {
+                sampler: Sampler::default(),
+                source: image_index,
+            };
+
+            images.0.push(image);
+            textures.0.push(texture);
+            entry.insert(texture_index);
+        };
+
+        for mtl in mtls.iter() {
+            if let Some(mtl::MtlMapBump(path)) = &mtl.map_bump {
+                add_to_textures(path);
+            }
+            if let Some(mtl::MtlMapKa(path)) = &mtl.map_ka {
+                add_to_textures(path);
+            }
+            if let Some(mtl::MtlMapKd(path)) = &mtl.map_kd {
+                add_to_textures(path);
+            }
+        }
+
+        (images, textures, texture_map)
+    }
+
     #[expect(unused)]
     pub fn get(&self, index: TextureIndex) -> Option<&Texture> {
         self.0.get(index.0)
@@ -231,7 +329,7 @@ pub struct Material {
 
 impl Material {
     #[expect(unused)]
-    pub fn from_mtl(mtl: parser::ParsedMtl, path_map: HashMap<PathBuf, TextureIndex>) -> Self {
+    fn from_mtl(mtl: parser::ParsedMtl, path_map: &HashMap<PathBuf, TextureIndex>) -> Self {
         let mtl::ParsedMtl {
             name,
             ka,
@@ -329,6 +427,35 @@ pub struct Model {
 impl Model {
     #[expect(unused)]
     pub fn new(obj: parser::ParsedObj, mtl: Vec<parser::ParsedMtl>) -> Self {
+        let (images, textures, texture_map) = Textures::from_mtl(&mtl);
+
+        let mtl = mtl
+            .into_iter()
+            .map(|mtl| Material::from_mtl(mtl, &texture_map))
+            .collect();
+        let mtl = Materials(mtl);
+
+        let objects = SameIndexObject::separate_objects(obj);
+
+        // TODO: make vertex buffer interleaved with uv coordinates
+        let mut buffers = Buffers(Vec::new());
+        for obj in objects {
+            let SameIndexObject {
+                name,
+                faces,
+                groups,
+                mtls,
+                geo_vertices,
+                tex_vertices,
+                vertex_normals,
+            } = obj;
+
+            assert!(tex_vertices.len() == 0 || geo_vertices.len() == tex_vertices.len());
+            assert!(vertex_normals.len() == 0 || geo_vertices.len() == vertex_normals.len());
+
+            todo!()
+        }
+
         todo!()
     }
 }
@@ -554,7 +681,7 @@ impl MaterialOld {
 }
 
 #[derive(Debug, Clone)]
-struct Object {
+struct SameIndexObject {
     pub name: Option<String>,
     pub faces: Vec<obj::F>,
     #[expect(unused)]
@@ -638,7 +765,7 @@ impl SkipSequence {
     }
 }
 
-impl Object {
+impl SameIndexObject {
     fn separate_objects(parsed_obj: obj::ParsedObj) -> Vec<Self> {
         let obj::ParsedObj {
             geo_vertices,
@@ -649,7 +776,9 @@ impl Object {
 
         objects
             .into_iter()
-            .map(|obj| Object::create_single(obj, &geo_vertices, &tex_vertices, &vertex_normals))
+            .map(|obj| {
+                SameIndexObject::create_single(obj, &geo_vertices, &tex_vertices, &vertex_normals)
+            })
             .collect()
     }
 
@@ -658,7 +787,7 @@ impl Object {
         geo_vertices: &[obj::V],
         tex_vertices: &[obj::Vt],
         vertex_normals: &[obj::Vn],
-    ) -> Object {
+    ) -> SameIndexObject {
         let obj::Object {
             name,
             faces,
@@ -734,7 +863,7 @@ impl Object {
             })
             .collect();
 
-        Object {
+        SameIndexObject {
             name,
             faces,
             groups,
@@ -747,8 +876,8 @@ impl Object {
 }
 
 impl MeshCombined {
-    fn new(obj: Object) -> Option<Self> {
-        let Object {
+    fn new(obj: SameIndexObject) -> Option<Self> {
+        let SameIndexObject {
             name,
             faces,
             groups: _,
@@ -905,7 +1034,7 @@ impl MeshCombined {
 
 impl ModelOld {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
-        let meshes = Object::separate_objects(parsed_obj)
+        let meshes = SameIndexObject::separate_objects(parsed_obj)
             .into_iter()
             .flat_map(MeshCombined::new)
             .map(|mut m| {
