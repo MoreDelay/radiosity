@@ -487,7 +487,7 @@ impl RenderState {
             &self.phong_layout,
             &self.texture_layout,
             &material.phong_params,
-            material.color_texture.as_ref(),
+            material.phong_params.diffuse_map.as_ref(),
             material.normal_texture.as_ref(),
             label,
         )

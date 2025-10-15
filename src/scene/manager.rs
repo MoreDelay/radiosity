@@ -88,7 +88,7 @@ impl DrawManager {
         label: Option<&str>,
     ) {
         let mesh = storage.get_mesh(mesh_index);
-        assert!(!mesh.triangles.is_empty());
+        assert!(!mesh.index_buffer.triangles.is_empty());
         let buffer_index = self.render_state.borrow_mut().add_mesh_buffer(mesh, label);
 
         let mesh_info = MeshInfo {
@@ -101,7 +101,7 @@ impl DrawManager {
 
         self.add_material(storage, mesh.material, label);
 
-        let slice = 0..mesh.triangles.len() as u32;
+        let slice = 0..mesh.index_buffer.triangles.len() as u32;
         let slice = FaceIndexSlice(slice);
         let subscription = MaterialSubscription { slice, mesh_index };
         self.materials

@@ -8,7 +8,6 @@ use std::{
 use bitvec::prelude::*;
 use image::ImageReader;
 use nalgebra as na;
-use zerocopy::IntoBytes;
 
 use crate::{
     model::parser::{mtl, obj},
@@ -16,6 +15,377 @@ use crate::{
 };
 
 pub mod parser;
+
+pub struct IndexBuffer {
+    pub triangles: Vec<[u32; 3]>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct IndexBufferIndex(u32);
+
+#[expect(unused)]
+#[derive(Clone, Debug)]
+pub struct IndexBufferView {
+    pub buffer: IndexBufferIndex,
+    pub range: Range<u32>,
+}
+
+pub struct VertexBuffer {
+    pub vertices: Vec<[f32; 3]>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct VertexBufferIndex(u32);
+
+#[expect(unused)]
+pub struct TexCoordBuffer {
+    pub vertices: Vec<[f32; 2]>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TexCoordBufferIndex(u32);
+
+pub struct NormalBuffer {
+    pub normals: Vec<[f32; 3]>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct NormalBufferIndex(u32);
+
+#[expect(unused)]
+pub struct TangentBuffer {
+    pub normals: Vec<[f32; 3]>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TangentBufferIndex(u32);
+
+#[expect(unused)]
+#[derive(Clone, Debug)]
+pub struct BlinnPhong {
+    pub ambient_base: Color,
+    pub diffuse_base: Color,
+    pub specular_base: Color,
+    pub specular_exponent: f32,
+    pub diffuse_map: Option<TextureIndex>,
+}
+
+#[expect(unused)]
+pub enum MaterialType {
+    BlinnPhong(BlinnPhong),
+    // TODO: Add Metallic Roughness type
+}
+
+#[expect(unused)]
+pub struct MaterialNew {
+    pub data: MaterialType,
+    pub normal: Option<TextureIndex>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct MaterialNewIndex(u32);
+
+#[expect(unused)]
+#[derive(Debug, Clone, Default)]
+pub struct Sampler {
+    pub mag_filter: Filter,
+    pub min_filter: Filter,
+    pub mipmap_filter: Filter,
+    pub wrap_s: WrapMode,
+    pub wrap_t: WrapMode,
+}
+
+#[expect(unused)]
+#[derive(Debug, Clone)]
+pub struct Texture {
+    pub sampler: Sampler,
+    pub image: ImageIndex,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TextureIndex(u32);
+
+#[expect(unused)]
+pub enum Image {
+    Path(PathBuf),
+    Data {
+        data: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+        path: Option<PathBuf>,
+    },
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ImageIndex(u32);
+
+#[expect(unused)]
+pub struct PrimitiveData {
+    pub vertex: VertexBufferIndex,
+    pub normal: Option<(NormalBufferIndex, TangentBufferIndex)>,
+    pub tex_coords: Option<TexCoordBufferIndex>,
+}
+
+#[expect(unused)]
+pub struct PrimitivesNew {
+    pub data: PrimitiveData,
+    pub indices: IndexBufferView,
+    pub material: Option<MaterialNewIndex>,
+}
+
+#[expect(unused)]
+pub struct MeshNew {
+    pub primitives: Vec<PrimitivesNew>,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct MeshNewIndex(u32);
+
+pub struct Storage {
+    index_buffers: Vec<IndexBuffer>,
+    vertex_buffers: Vec<VertexBuffer>,
+    tex_coord_buffers: Vec<TexCoordBuffer>,
+    normal_buffers: Vec<NormalBuffer>,
+    tangent_buffers: Vec<TangentBuffer>,
+    materials: Vec<MaterialNew>,
+    textures: Vec<Texture>,
+    images: Vec<Image>,
+    meshes: Vec<MeshNew>,
+}
+
+impl Storage {
+    #[expect(unused)]
+    pub fn new() -> Self {
+        Self {
+            index_buffers: Vec::new(),
+            vertex_buffers: Vec::new(),
+            tex_coord_buffers: Vec::new(),
+            normal_buffers: Vec::new(),
+            tangent_buffers: Vec::new(),
+            materials: Vec::new(),
+            textures: Vec::new(),
+            images: Vec::new(),
+            meshes: Vec::new(),
+        }
+    }
+
+    #[expect(unused)]
+    pub fn index_buffer(&self, index: IndexBufferIndex) -> &IndexBuffer {
+        &self.index_buffers[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn vertex_buffer(&self, index: VertexBufferIndex) -> &VertexBuffer {
+        &self.vertex_buffers[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn tex_coord_buffer(&self, index: TexCoordBufferIndex) -> &TexCoordBuffer {
+        &self.tex_coord_buffers[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn normal_buffer(&self, index: NormalBufferIndex) -> &NormalBuffer {
+        &self.normal_buffers[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn tangent_buffer(&self, index: TangentBufferIndex) -> &TangentBuffer {
+        &self.tangent_buffers[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn material(&self, index: MaterialNewIndex) -> &MaterialNew {
+        &self.materials[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn texture(&self, index: TextureIndex) -> &Texture {
+        &self.textures[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn image(&self, index: ImageIndex) -> &Image {
+        &self.images[index.0 as usize]
+    }
+
+    #[expect(unused)]
+    pub fn mesh(&self, index: MeshNewIndex) -> &MeshNew {
+        &self.meshes[index.0 as usize]
+    }
+}
+
+impl Storage {
+    #[expect(unused)]
+    pub fn store_obj(
+        &mut self,
+        obj: parser::ParsedObj,
+        mtls: impl IntoIterator<Item = parser::ParsedMtl>,
+    ) -> MeshNewIndex {
+        let texture_map = self.store_mtls(mtls);
+        let objects = CompactedObject::separate_objects(obj);
+
+        for mut object in objects.into_iter().flat_map(MeshCombined::new) {
+            object.compute_normals();
+            let MeshCombined {
+                name,
+                vertex_buffer: vertices,
+                tex_coord_buffer: uv,
+                material,
+                normal_buffer_computed: normals_computed,
+                normal_buffer_specified: normals_specified,
+                index_buffer: triangles,
+            } = object;
+
+            let index_buffer = self.store_index_buffer(triangles);
+            let vertex_buffer = self.store_vertex_buffer(vertices);
+            let tex_coord_buffer = uv.map(|uv| self.store_tex_coord_buffer(uv));
+            let normal_buffer_computed = self.store_normal_buffer(normals_computed.unwrap());
+            let normal_buffer_specified = normals_specified.map(|n| self.store_normal_buffer(n));
+
+            // TODO: create index buffer slices from materials (first need to keep slices in
+            // MeshCombined)
+            todo!()
+        }
+        todo!()
+    }
+
+    #[expect(unused)]
+    fn store_mtls(
+        &mut self,
+        mtls: impl IntoIterator<Item = parser::ParsedMtl>,
+    ) -> HashMap<PathBuf, TextureIndex> {
+        let mut texture_map: HashMap<PathBuf, TextureIndex> = HashMap::new();
+
+        let mut to_index = |inner: &mut Self, path: PathBuf| {
+            use std::collections::hash_map::Entry;
+
+            let entry = match texture_map.entry(path) {
+                Entry::Occupied(entry) => return *entry.get(),
+                Entry::Vacant(entry) => entry,
+            };
+
+            let path = entry.key().clone();
+            let image = Image::Path(path);
+            let index = inner.store_image(image);
+            let texture = Texture {
+                sampler: Sampler::default(),
+                image: index,
+            };
+            let index = inner.store_texture(texture);
+            entry.insert(index);
+            return index;
+        };
+
+        for mtl in mtls {
+            let mtl::ParsedMtl {
+                name,
+                ka,
+                kd,
+                ks,
+                ns,
+                map_bump,
+                map_kd,
+                ..
+            } = mtl;
+
+            let ka = ka.unwrap_or_else(|| parser::mtl::MtlKa::default());
+            let kd = kd.unwrap_or_else(|| parser::mtl::MtlKd::default());
+            let ks = ks.unwrap_or_else(|| parser::mtl::MtlKs::default());
+            let ns = ns.unwrap_or_else(|| parser::mtl::MtlNs::default());
+
+            let ambient_base = Color {
+                r: ka.0,
+                g: ka.1,
+                b: ka.2,
+            };
+            let diffuse_base = Color {
+                r: kd.0,
+                g: kd.1,
+                b: kd.2,
+            };
+            let specular_base = Color {
+                r: ks.0,
+                g: kd.1,
+                b: kd.2,
+            };
+            let specular_exponent = ns.0;
+
+            let diffuse_map = map_kd.map(|path| to_index(self, path.0));
+            let normal_map = map_bump.map(|path| to_index(self, path.0));
+
+            let mtl = BlinnPhong {
+                ambient_base,
+                diffuse_base,
+                specular_base,
+                specular_exponent,
+                diffuse_map,
+            };
+            let mtl = MaterialNew {
+                data: MaterialType::BlinnPhong(mtl),
+                normal: normal_map,
+            };
+
+            self.store_material(mtl);
+        }
+
+        texture_map
+    }
+
+    fn store_index_buffer(&mut self, buffer: IndexBuffer) -> IndexBufferIndex {
+        let index = IndexBufferIndex(self.vertex_buffers.len() as u32);
+        self.index_buffers.push(buffer);
+        index
+    }
+
+    fn store_vertex_buffer(&mut self, buffer: VertexBuffer) -> VertexBufferIndex {
+        let index = VertexBufferIndex(self.vertex_buffers.len() as u32);
+        self.vertex_buffers.push(buffer);
+        index
+    }
+
+    fn store_tex_coord_buffer(&mut self, buffer: TexCoordBuffer) -> TexCoordBufferIndex {
+        let index = TexCoordBufferIndex(self.tex_coord_buffers.len() as u32);
+        self.tex_coord_buffers.push(buffer);
+        index
+    }
+
+    fn store_normal_buffer(&mut self, buffer: NormalBuffer) -> NormalBufferIndex {
+        let index = NormalBufferIndex(self.normal_buffers.len() as u32);
+        self.normal_buffers.push(buffer);
+        index
+    }
+
+    #[expect(unused)]
+    fn store_tangent_buffer(&mut self, buffer: TangentBuffer) -> TangentBufferIndex {
+        let index = TangentBufferIndex(self.tangent_buffers.len() as u32);
+        self.tangent_buffers.push(buffer);
+        index
+    }
+
+    fn store_material(&mut self, material: MaterialNew) -> MaterialNewIndex {
+        let index = MaterialNewIndex(self.materials.len() as u32);
+        self.materials.push(material);
+        index
+    }
+
+    fn store_texture(&mut self, texture: Texture) -> TextureIndex {
+        let index = TextureIndex(self.textures.len() as u32);
+        self.textures.push(texture);
+        index
+    }
+
+    fn store_image(&mut self, image: Image) -> ImageIndex {
+        let index = ImageIndex(self.images.len() as u32);
+        self.images.push(image);
+        index
+    }
+
+    #[expect(unused)]
+    fn store_mesh(&mut self, mesh: MeshNew) -> MeshNewIndex {
+        let index = MeshNewIndex(self.meshes.len() as u32);
+        self.meshes.push(mesh);
+        index
+    }
+}
 
 /// GLTF Buffer
 #[expect(unused)]
@@ -159,79 +529,33 @@ impl Meshes {
     }
 }
 
-/// GLTF Image
-#[expect(unused)]
-pub enum Image {
-    Path(PathBuf),
-}
-
 pub struct Images(Vec<Image>);
-
-#[derive(Copy, Clone, Debug)]
-pub struct ImageIndex(usize);
 
 impl Images {
     #[expect(unused)]
     pub fn get(&self, index: ImageIndex) -> Option<&Image> {
-        self.0.get(index.0)
+        self.0.get(index.0 as usize)
     }
 }
 
 #[expect(unused)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Filter {
     Nearest,
+    #[default]
     Linear,
 }
 
 #[expect(unused)]
-pub struct MinFilter {
-    pub texture: Filter,
-    pub mipmap: Option<Filter>,
-}
-
-#[expect(unused)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum WrapMode {
     ClampToEdge,
     MirroredRepeat,
+    #[default]
     Repeat,
 }
 
-/// GLTF Sampler
-#[expect(unused)]
-pub struct Sampler {
-    pub mag_filter: Filter,
-    pub min_filter: MinFilter,
-    pub wrap_s: WrapMode,
-    pub wrap_t: WrapMode,
-    pub name: Option<String>,
-}
-
-impl Default for Sampler {
-    fn default() -> Self {
-        Self {
-            mag_filter: Filter::Linear,
-            min_filter: MinFilter {
-                texture: Filter::Linear,
-                mipmap: Some(Filter::Linear),
-            },
-            wrap_s: WrapMode::Repeat,
-            wrap_t: WrapMode::Repeat,
-            name: None,
-        }
-    }
-}
-
-/// GLTF Texture
-#[expect(unused)]
-pub struct Texture {
-    pub sampler: Sampler,
-    pub source: ImageIndex,
-}
-
 pub struct Textures(Vec<Texture>);
-
-#[derive(Copy, Clone, Debug)]
-pub struct TextureIndex(usize);
 
 impl Textures {
     fn from_mtl(mtls: &[parser::ParsedMtl]) -> (Images, Textures, HashMap<PathBuf, TextureIndex>) {
@@ -251,13 +575,13 @@ impl Textures {
             assert_eq!(n_images, textures.0.len());
 
             // mtl can not specify sampler, so images and textures have 1:1 correspondence
-            let image_index = ImageIndex(n_images);
-            let texture_index = TextureIndex(n_images);
+            let image_index = ImageIndex(n_images as u32);
+            let texture_index = TextureIndex(n_images as u32);
 
             let image = Image::Path(path.to_path_buf());
             let texture = Texture {
                 sampler: Sampler::default(),
-                source: image_index,
+                image: image_index,
             };
 
             images.0.push(image);
@@ -282,7 +606,7 @@ impl Textures {
 
     #[expect(unused)]
     pub fn get(&self, index: TextureIndex) -> Option<&Texture> {
-        self.0.get(index.0)
+        self.0.get(index.0 as usize)
     }
 }
 
@@ -435,12 +759,12 @@ impl Model {
             .collect();
         let mtl = Materials(mtl);
 
-        let objects = SameIndexObject::separate_objects(obj);
+        let objects = CompactedObject::separate_objects(obj);
 
         // TODO: make vertex buffer interleaved with uv coordinates
         let mut buffers = Buffers(Vec::new());
         for obj in objects {
-            let SameIndexObject {
+            let CompactedObject {
                 name,
                 faces,
                 groups,
@@ -512,18 +836,18 @@ pub struct ColorTexture(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 pub struct NormalTextureOld(pub image::ImageBuffer<image::Rgba<u8>, Vec<u8>>);
 
 #[derive(Clone, Debug)]
-pub struct PhongParameters {
-    pub ambient_color: Color,
+pub struct BlinnPhongOld {
+    pub ambient_base: Color,
     pub diffuse_color: Color,
     pub specular_color: Color,
     pub specular_exponent: f32,
+    pub diffuse_map: Option<ColorTexture>,
 }
 
 #[derive(Debug, Clone)]
 pub struct MaterialOld {
     pub name: String,
-    pub phong_params: PhongParameters,
-    pub color_texture: Option<ColorTexture>,
+    pub phong_params: BlinnPhongOld,
     pub normal_texture: Option<NormalTextureOld>,
 }
 
@@ -531,16 +855,13 @@ pub struct MaterialOld {
 pub struct Triangle(VertexIndex, VertexIndex, VertexIndex);
 
 pub struct MeshCombined {
-    #[expect(unused)]
     pub name: Option<String>,
-    pub vertices: Vec<na::Vector3<f32>>,
-    #[expect(unused)]
-    pub uv: Vec<na::Vector2<f32>>,
+    pub vertex_buffer: VertexBuffer,
+    pub tex_coord_buffer: Option<TexCoordBuffer>,
     pub material: Option<MaterialIndexOld>,
-    pub normals_computed: Vec<na::Unit<na::Vector3<f32>>>,
-    #[expect(unused)]
-    pub normals_specified: Vec<na::Unit<na::Vector3<f32>>>,
-    pub triangles: Vec<(u32, u32, u32)>,
+    pub normal_buffer_computed: Option<NormalBuffer>,
+    pub normal_buffer_specified: Option<NormalBuffer>,
+    pub index_buffer: IndexBuffer,
 }
 
 pub struct ModelOld {
@@ -563,7 +884,6 @@ impl ModelStorage {
         static DEFAULT: LazyLock<MaterialOld> = LazyLock::new(|| MaterialOld {
             name: String::from("Default"),
             phong_params: Default::default(),
-            color_texture: None,
             normal_texture: None,
         });
 
@@ -664,9 +984,10 @@ impl MaterialOld {
             .map(|mtl::MtlNs(exponent)| exponent)
             .unwrap_or(mtl::MtlNs::default().0);
 
-        let phong_params = PhongParameters {
-            ambient_color,
+        let phong_params = BlinnPhongOld {
+            ambient_base: ambient_color,
             diffuse_color,
+            diffuse_map: color_texture,
             specular_color,
             specular_exponent,
         };
@@ -674,17 +995,15 @@ impl MaterialOld {
         Ok(Self {
             name: mtl.name.to_string(),
             phong_params,
-            color_texture,
             normal_texture,
         })
     }
 }
 
 #[derive(Debug, Clone)]
-struct SameIndexObject {
+struct CompactedObject {
     pub name: Option<String>,
     pub faces: Vec<obj::F>,
-    #[expect(unused)]
     pub groups: HashMap<String, obj::FaceRanges>,
     pub mtls: HashMap<Option<u32>, obj::FaceRanges>,
     pub geo_vertices: Vec<obj::V>,
@@ -765,7 +1084,7 @@ impl SkipSequence {
     }
 }
 
-impl SameIndexObject {
+impl CompactedObject {
     fn separate_objects(parsed_obj: obj::ParsedObj) -> Vec<Self> {
         let obj::ParsedObj {
             geo_vertices,
@@ -776,8 +1095,8 @@ impl SameIndexObject {
 
         objects
             .into_iter()
-            .map(|obj| {
-                SameIndexObject::create_single(obj, &geo_vertices, &tex_vertices, &vertex_normals)
+            .flat_map(|obj| {
+                CompactedObject::create_single(obj, &geo_vertices, &tex_vertices, &vertex_normals)
             })
             .collect()
     }
@@ -787,13 +1106,17 @@ impl SameIndexObject {
         geo_vertices: &[obj::V],
         tex_vertices: &[obj::Vt],
         vertex_normals: &[obj::Vn],
-    ) -> SameIndexObject {
+    ) -> Option<CompactedObject> {
         let obj::Object {
             name,
             faces,
             groups,
             mtls,
         } = obj;
+
+        if faces.is_empty() {
+            return None;
+        }
 
         let mut geo_bitvec = bitvec![0; geo_vertices.len()];
         let mut tex_bitvec = bitvec![0; tex_vertices.len()];
@@ -863,7 +1186,7 @@ impl SameIndexObject {
             })
             .collect();
 
-        SameIndexObject {
+        Some(CompactedObject {
             name,
             faces,
             groups,
@@ -871,13 +1194,13 @@ impl SameIndexObject {
             geo_vertices,
             tex_vertices,
             vertex_normals,
-        }
+        })
     }
 }
 
 impl MeshCombined {
-    fn new(obj: SameIndexObject) -> Option<Self> {
-        let SameIndexObject {
+    fn new(obj: CompactedObject) -> Option<Self> {
+        let CompactedObject {
             name,
             faces,
             groups: _,
@@ -916,7 +1239,7 @@ impl MeshCombined {
         let n_vertices = triplet_to_index.len();
 
         let mut new_vertices = Vec::with_capacity(n_vertices);
-        new_vertices.resize_with(n_vertices, || na::Vector3::zeros());
+        new_vertices.resize_with(n_vertices, || [0f32; 3]);
 
         let mut new_normals = has_normals.then(|| {
             let mut vec = Vec::with_capacity(n_vertices);
@@ -926,7 +1249,7 @@ impl MeshCombined {
 
         let mut new_tex = has_tex.then(|| {
             let mut vec = Vec::with_capacity(n_vertices);
-            vec.resize_with(n_vertices, || na::Vector2::zeros());
+            vec.resize_with(n_vertices, || [0f32; 2]);
             vec
         });
 
@@ -938,8 +1261,7 @@ impl MeshCombined {
             } = triplet;
 
             let obj::V { x, y, z, w: _ } = old_geo[index_vertex as usize];
-            let position = na::Vector3::new(x, y, z);
-            new_vertices[*index as usize] = position;
+            new_vertices[*index as usize] = [x, y, z];
 
             if let Some(new_normals) = new_normals.as_mut() {
                 let index_normal = index_normal.expect("checked before");
@@ -951,10 +1273,14 @@ impl MeshCombined {
             if let Some(new_tex) = new_tex.as_mut() {
                 let index_texture = index_texture.expect("checked before");
                 let obj::Vt { u, v, w: _ } = old_tex[index_texture as usize];
-                let uv = na::Vector2::new(u, v);
-                new_tex[*index as usize] = uv;
+                new_tex[*index as usize] = [u, v];
             }
         }
+
+        let new_vertices = VertexBuffer {
+            vertices: new_vertices,
+        };
+        let new_tex = new_tex.map(|vertices| TexCoordBuffer { vertices });
 
         // make triangles out of polygons naively
         let triangles = faces
@@ -971,19 +1297,23 @@ impl MeshCombined {
                         let second = triplet_to_index[second];
                         let third = triplet_to_index[third];
 
-                        (first, second, third)
+                        [first, second, third]
                     })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+        let triangles = IndexBuffer { triangles };
 
-        let new_normals = new_normals
-            .unwrap_or_else(|| Vec::new())
-            .into_iter()
-            .map(na::Unit::new_normalize)
-            .collect();
-
-        let new_tex = new_tex.unwrap_or_else(|| Vec::new());
+        let new_normals = new_normals.map(|new_normals| {
+            new_normals
+                .into_iter()
+                .map(|n| {
+                    let n = na::Unit::new_normalize(n);
+                    [n[0], n[1], n[2]]
+                })
+                .collect()
+        });
+        let new_normals = new_normals.map(|normals| NormalBuffer { normals });
 
         let material = has_tex
             .then(|| {
@@ -998,23 +1328,31 @@ impl MeshCombined {
 
         Some(Self {
             name,
-            vertices: new_vertices,
-            uv: new_tex,
+            vertex_buffer: new_vertices,
+            tex_coord_buffer: new_tex,
             material,
-            normals_computed: Vec::new(),
-            normals_specified: new_normals,
-            triangles,
+            normal_buffer_computed: None,
+            normal_buffer_specified: new_normals,
+            index_buffer: triangles,
         })
     }
 
     fn compute_normals(&mut self) {
-        let mut normals_computed = Vec::new();
-        normals_computed.resize_with(self.vertices.len(), na::Vector3::zeros);
+        if self.normal_buffer_computed.is_some() {
+            return;
+        }
 
-        for &(i0, i1, i2) in self.triangles.iter() {
-            let p0 = &self.vertices[i0 as usize];
-            let p1 = &self.vertices[i1 as usize];
-            let p2 = &self.vertices[i2 as usize];
+        let mut normals_computed = Vec::new();
+        normals_computed.resize_with(self.vertex_buffer.vertices.len(), na::Vector3::zeros);
+
+        for &[i0, i1, i2] in self.index_buffer.triangles.iter() {
+            let p0 = &self.vertex_buffer.vertices[i0 as usize];
+            let p1 = &self.vertex_buffer.vertices[i1 as usize];
+            let p2 = &self.vertex_buffer.vertices[i2 as usize];
+
+            let p0 = na::Vector3::from_column_slice(p0);
+            let p1 = na::Vector3::from_column_slice(p1);
+            let p2 = na::Vector3::from_column_slice(p2);
 
             let v0 = p1 - p0;
             let v1 = p2 - p0;
@@ -1025,16 +1363,23 @@ impl MeshCombined {
             normals_computed[i2 as usize] += *normal;
         }
 
-        self.normals_computed = normals_computed
+        let normals_computed = normals_computed
             .into_iter()
-            .map(na::Unit::new_normalize)
+            .map(|n| {
+                let n = na::Unit::new_normalize(n);
+                [n[0], n[1], n[2]]
+            })
             .collect();
+
+        self.normal_buffer_computed = Some(NormalBuffer {
+            normals: normals_computed,
+        });
     }
 }
 
 impl ModelOld {
     fn new(parsed_obj: obj::ParsedObj) -> Self {
-        let meshes = SameIndexObject::separate_objects(parsed_obj)
+        let meshes = CompactedObject::separate_objects(parsed_obj)
             .into_iter()
             .flat_map(MeshCombined::new)
             .map(|mut m| {
@@ -1047,11 +1392,12 @@ impl ModelOld {
     }
 }
 
-impl Default for PhongParameters {
+impl Default for BlinnPhongOld {
     fn default() -> Self {
         Self {
-            ambient_color: Color::from(mtl::MtlKa::default()),
+            ambient_base: Color::from(mtl::MtlKa::default()),
             diffuse_color: Color::from(mtl::MtlKd::default()),
+            diffuse_map: None,
             specular_color: Color::from(mtl::MtlKs::default()),
             specular_exponent: mtl::MtlNs::default().0,
         }
@@ -1062,28 +1408,32 @@ impl render::GpuTransfer for MeshCombined {
     type Raw = render::TriangleBufferRaw;
 
     fn to_raw(&self) -> Self::Raw {
-        assert!(self.vertices.len() <= <u32>::MAX as usize);
+        assert!(self.vertex_buffer.vertices.len() <= <u32>::MAX as usize);
         let indices = self
+            .index_buffer
             .triangles
             .iter()
-            .flat_map(|&(i, j, k)| [i, j, k])
+            .flat_map(|&[i, j, k]| [i, j, k])
             .collect();
         // let normals = if !self.normals_specified.is_empty() {
         //     &self.normals_specified
         // } else {
         //     &self.normals_computed
         // };
-        let normals = &self.normals_computed;
-        assert!(normals.len() == self.vertices.len());
+        let normal_buffer = self.normal_buffer_computed.as_ref().unwrap();
+        assert!(normal_buffer.normals.len() == self.vertex_buffer.vertices.len());
 
         let vertices = self
+            .vertex_buffer
             .vertices
             .iter()
-            .zip(normals.iter())
+            .zip(normal_buffer.normals.iter())
             .map(|(v, n)| {
-                let basis = crate::math::orthonormal_basis_for_normal(n);
+                let n = na::Vector3::from_column_slice(n);
+                let n = na::Unit::new_normalize(n);
+                let basis = crate::math::orthonormal_basis_for_normal(&n);
                 render::VertexRaw {
-                    position: (*v).into(),
+                    position: *v,
                     tex_coords: [0., 0.],
                     normal: basis.column(0).into(),
                     tangent: basis.column(1).into(),
@@ -1155,7 +1505,7 @@ impl From<Triangle> for (u32, u32, u32) {
     }
 }
 
-impl render::GpuTransfer for PhongParameters {
+impl render::GpuTransfer for BlinnPhongOld {
     type Raw = render::PhongRaw;
 
     fn to_raw(&self) -> Self::Raw {
@@ -1164,7 +1514,7 @@ impl render::GpuTransfer for PhongParameters {
             specular_exponent: self.specular_exponent,
             diffuse_color: self.diffuse_color.into(),
             _padding1: 0,
-            ambient_color: self.ambient_color.into(),
+            ambient_color: self.ambient_base.into(),
             _padding2: 0,
         }
     }
