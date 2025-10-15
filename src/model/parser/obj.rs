@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     fs::File,
     io::{BufRead, BufReader},
     ops::Range,
@@ -58,16 +58,14 @@ pub struct F {
 }
 
 #[derive(Debug, Clone)]
-pub struct FaceRanges {
-    pub slices: Vec<Range<u32>>,
-}
+pub struct FaceRange(pub Range<u32>);
 
 #[derive(Clone)]
 pub struct Object {
     pub name: Option<String>,
     pub faces: Vec<F>,
-    pub groups: HashMap<String, FaceRanges>,
-    pub mtls: HashMap<Option<u32>, FaceRanges>,
+    pub groups: Vec<(String, FaceRange)>,
+    pub mtls: Vec<(Option<u32>, FaceRange)>,
 }
 
 #[derive(Clone)]
@@ -451,8 +449,8 @@ pub fn load_obj(
     let mut cur_object = Object {
         name: None,
         faces: Vec::new(),
-        groups: HashMap::new(),
-        mtls: HashMap::new(),
+        groups: Vec::new(),
+        mtls: Vec::new(),
     };
     let mut cur_groups: Option<GroupState> = None;
     let mut cur_mtl = MtlState {
@@ -496,15 +494,9 @@ pub fn load_obj(
                     // complete current groups
                     let end = cur_object.faces.len() as u32;
                     if let Some(cur_groups) = cur_groups.take() {
-                        let range = cur_groups.start..end;
+                        let range = FaceRange(cur_groups.start..end);
                         for name in cur_groups.names {
-                            cur_object
-                                .groups
-                                .entry(name)
-                                .and_modify(|e| e.slices.push(range.clone()))
-                                .or_insert_with(|| FaceRanges {
-                                    slices: vec![range.clone()],
-                                });
+                            cur_object.groups.push((name, range.clone()));
                         }
                     }
 
@@ -515,14 +507,8 @@ pub fn load_obj(
                 Line::UseMtl(Usemtl { name }) => {
                     // complete current material
                     let end = cur_object.faces.len() as u32;
-                    let range = cur_mtl.start..end;
-                    cur_object
-                        .mtls
-                        .entry(cur_mtl.index)
-                        .and_modify(|e| e.slices.push(range.clone()))
-                        .or_insert_with(|| FaceRanges {
-                            slices: vec![range.clone()],
-                        });
+                    let range = FaceRange(cur_mtl.start..end);
+                    cur_object.mtls.push((cur_mtl.index, range));
 
                     // start new material
                     let start = end;
@@ -547,8 +533,8 @@ pub fn load_obj(
                     cur_object = Object {
                         name: Some(new_name),
                         faces: Vec::new(),
-                        groups: HashMap::new(),
-                        mtls: HashMap::new(),
+                        groups: Vec::new(),
+                        mtls: Vec::new(),
                     };
                 }
             };
@@ -557,14 +543,16 @@ pub fn load_obj(
 
     // complete final object
     let end = cur_object.faces.len() as u32;
-    let range = cur_mtl.start..end;
-    cur_object
-        .mtls
-        .entry(cur_mtl.index)
-        .and_modify(|e| e.slices.push(range.clone()))
-        .or_insert_with(|| FaceRanges {
-            slices: vec![range.clone()],
-        });
+
+    if let Some(cur_groups) = cur_groups.take() {
+        let range = FaceRange(cur_groups.start..end);
+        for name in cur_groups.names {
+            cur_object.groups.push((name, range.clone()));
+        }
+    }
+
+    let range = FaceRange(cur_mtl.start..end);
+    cur_object.mtls.push((cur_mtl.index, range));
 
     if !cur_object.faces.is_empty() {
         res.objects.push(cur_object);

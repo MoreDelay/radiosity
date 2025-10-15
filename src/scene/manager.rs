@@ -99,13 +99,13 @@ impl DrawManager {
         };
         self.meshes.insert(mesh_index, mesh_info);
 
-        self.add_material(storage, mesh.material, label);
+        self.add_material(storage, None, label);
 
         let slice = 0..mesh.index_buffer.triangles.len() as u32;
         let slice = FaceIndexSlice(slice);
         let subscription = MaterialSubscription { slice, mesh_index };
         self.materials
-            .get_mut(&mesh.material)
+            .get_mut(&None)
             .expect("made sure it exists before")
             .subscribed_meshes
             .push(subscription);

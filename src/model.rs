@@ -229,7 +229,7 @@ impl Storage {
                 name,
                 vertex_buffer: vertices,
                 tex_coord_buffer: uv,
-                material,
+                materials,
                 normal_buffer_computed: normals_computed,
                 normal_buffer_specified: normals_specified,
                 index_buffer: triangles,
@@ -241,9 +241,7 @@ impl Storage {
             let normal_buffer_computed = self.store_normal_buffer(normals_computed.unwrap());
             let normal_buffer_specified = normals_specified.map(|n| self.store_normal_buffer(n));
 
-            // TODO: create index buffer slices from materials (first need to keep slices in
-            // MeshCombined)
-            todo!()
+            // TODO: create index buffer slices from materials
         }
         todo!()
     }
@@ -272,7 +270,7 @@ impl Storage {
             };
             let index = inner.store_texture(texture);
             entry.insert(index);
-            return index;
+            index
         };
 
         for mtl in mtls {
@@ -287,10 +285,10 @@ impl Storage {
                 ..
             } = mtl;
 
-            let ka = ka.unwrap_or_else(|| parser::mtl::MtlKa::default());
-            let kd = kd.unwrap_or_else(|| parser::mtl::MtlKd::default());
-            let ks = ks.unwrap_or_else(|| parser::mtl::MtlKs::default());
-            let ns = ns.unwrap_or_else(|| parser::mtl::MtlNs::default());
+            let ka = ka.unwrap_or_else(parser::mtl::MtlKa::default);
+            let kd = kd.unwrap_or_else(parser::mtl::MtlKd::default);
+            let ks = ks.unwrap_or_else(parser::mtl::MtlKs::default);
+            let ns = ns.unwrap_or_else(parser::mtl::MtlNs::default);
 
             let ambient_base = Color {
                 r: ka.0,
@@ -774,8 +772,8 @@ impl Model {
                 vertex_normals,
             } = obj;
 
-            assert!(tex_vertices.len() == 0 || geo_vertices.len() == tex_vertices.len());
-            assert!(vertex_normals.len() == 0 || geo_vertices.len() == vertex_normals.len());
+            assert!(tex_vertices.is_empty() || geo_vertices.len() == tex_vertices.len());
+            assert!(vertex_normals.is_empty() || geo_vertices.len() == vertex_normals.len());
 
             todo!()
         }
@@ -858,7 +856,7 @@ pub struct MeshCombined {
     pub name: Option<String>,
     pub vertex_buffer: VertexBuffer,
     pub tex_coord_buffer: Option<TexCoordBuffer>,
-    pub material: Option<MaterialIndexOld>,
+    pub materials: Vec<(Option<MaterialIndexOld>, obj::FaceRange)>,
     pub normal_buffer_computed: Option<NormalBuffer>,
     pub normal_buffer_specified: Option<NormalBuffer>,
     pub index_buffer: IndexBuffer,
@@ -1004,8 +1002,8 @@ impl MaterialOld {
 struct CompactedObject {
     pub name: Option<String>,
     pub faces: Vec<obj::F>,
-    pub groups: HashMap<String, obj::FaceRanges>,
-    pub mtls: HashMap<Option<u32>, obj::FaceRanges>,
+    pub groups: Vec<(String, obj::FaceRange)>,
+    pub mtls: Vec<(Option<u32>, obj::FaceRange)>,
     pub geo_vertices: Vec<obj::V>,
     pub tex_vertices: Vec<obj::Vt>,
     pub vertex_normals: Vec<obj::Vn>,
@@ -1204,7 +1202,7 @@ impl MeshCombined {
             name,
             faces,
             groups: _,
-            mtls,
+            mut mtls,
             geo_vertices: old_geo,
             tex_vertices: old_tex,
             vertex_normals: old_normals,
@@ -1218,7 +1216,7 @@ impl MeshCombined {
 
         let mut triplet_to_index = HashMap::<obj::FTriplet, u32>::new();
         let mut has_normals = true;
-        let mut has_tex = mtls.len() == 1; // only consider meshes with single material
+        let mut has_tex = true;
 
         for obj::F { triplets } in faces.iter() {
             for &triplet in triplets.iter() {
@@ -1243,7 +1241,7 @@ impl MeshCombined {
 
         let mut new_normals = has_normals.then(|| {
             let mut vec = Vec::with_capacity(n_vertices);
-            vec.resize_with(n_vertices, || na::Vector3::zeros());
+            vec.resize_with(n_vertices, na::Vector3::zeros);
             vec
         });
 
@@ -1283,10 +1281,29 @@ impl MeshCombined {
         let new_tex = new_tex.map(|vertices| TexCoordBuffer { vertices });
 
         // make triangles out of polygons naively
+        let mut mtl_iter = mtls.iter_mut();
+        let (_, cur_range_ref) = mtl_iter.next().expect("at least one material (default)");
+        let mut cur_range_ref = cur_range_ref;
+        let mut new_start = 0;
+        let mut new_index = 0;
+
         let triangles = faces
             .into_iter()
-            .flat_map(|face| {
+            .enumerate()
+            .flat_map(|(face_index, face)| {
                 assert!(face.triplets.len() >= 3, "too few vertices, not a face!");
+
+                let face_index = face_index as u32;
+                if face_index == cur_range_ref.0.end {
+                    // update previous material range
+                    let range = new_start..new_index;
+                    *cur_range_ref = obj::FaceRange(range);
+
+                    // keep track of next material
+                    new_start = new_index;
+                    let (_, next_range_ref) = mtl_iter.next().expect("not at end yet");
+                    cur_range_ref = next_range_ref;
+                }
 
                 let first = *face.triplets.first().expect("checked above");
                 let first = triplet_to_index[&first];
@@ -1294,6 +1311,8 @@ impl MeshCombined {
                     .windows(2)
                     .flat_map(<&[obj::FTriplet; 2]>::try_from)
                     .map(|[second, third]| {
+                        new_index += 1;
+
                         let second = triplet_to_index[second];
                         let third = triplet_to_index[third];
 
@@ -1302,6 +1321,12 @@ impl MeshCombined {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+
+        // complete last material
+        let new_end = triangles.len() as u32;
+        let range = new_start..new_end;
+        *cur_range_ref = obj::FaceRange(range);
+
         let triangles = IndexBuffer { triangles };
 
         let new_normals = new_normals.map(|new_normals| {
@@ -1315,22 +1340,21 @@ impl MeshCombined {
         });
         let new_normals = new_normals.map(|normals| NormalBuffer { normals });
 
-        let material = has_tex
-            .then(|| {
-                assert!(mtls.len() == 1);
-                let (index, face_ranges) = mtls.into_iter().next().unwrap();
-                assert!(face_ranges.slices.len() == 1);
-                let Range { start, end } = face_ranges.slices.into_iter().next().unwrap();
-                assert!(start == 0 && end as usize == n_vertices);
-                index.map(|index| MaterialIndexOld { index })
-            })
-            .flatten();
+        let materials = if has_tex {
+            mtls.into_iter()
+                .map(|(index, face_range)| {
+                    (index.map(|index| MaterialIndexOld { index }), face_range)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         Some(Self {
             name,
             vertex_buffer: new_vertices,
             tex_coord_buffer: new_tex,
-            material,
+            materials,
             normal_buffer_computed: None,
             normal_buffer_specified: new_normals,
             index_buffer: triangles,
