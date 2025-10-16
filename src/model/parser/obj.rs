@@ -493,7 +493,9 @@ pub fn load_obj(
                 Line::G(G { names }) => {
                     // complete current groups
                     let end = cur_object.faces.len() as u32;
-                    if let Some(cur_groups) = cur_groups.take() {
+                    if let Some(cur_groups) = cur_groups.take()
+                        && cur_groups.start < end
+                    {
                         let range = FaceRange(cur_groups.start..end);
                         for name in cur_groups.names {
                             cur_object.groups.push((name, range.clone()));
@@ -507,8 +509,10 @@ pub fn load_obj(
                 Line::UseMtl(Usemtl { name }) => {
                     // complete current material
                     let end = cur_object.faces.len() as u32;
-                    let range = FaceRange(cur_mtl.start..end);
-                    cur_object.mtls.push((cur_mtl.index, range));
+                    if cur_mtl.start < end {
+                        let range = FaceRange(cur_mtl.start..end);
+                        cur_object.mtls.push((cur_mtl.index, range));
+                    }
 
                     // start new material
                     let start = end;

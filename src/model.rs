@@ -226,7 +226,6 @@ impl Storage {
         &self.images[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn mesh(&self, index: MeshNewIndex) -> &MeshNew {
         &self.meshes[index.0 as usize]
     }
