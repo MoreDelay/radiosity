@@ -22,7 +22,7 @@ pub trait MtlManager {
     fn request_mtl_index(&self, name: &str) -> Option<u32>;
 }
 
-struct SimpleMtlManager {
+pub struct SimpleMtlManager {
     root_dir: PathBuf,
     materials: Vec<mtl::ParsedMtl>,
     name_mapping: HashMap<String, u32>,
@@ -44,6 +44,10 @@ impl SimpleMtlManager {
 
     pub fn get(&self, index: usize) -> Option<&mtl::ParsedMtl> {
         self.materials.get(index)
+    }
+
+    pub fn extract_list(self) -> Vec<mtl::ParsedMtl> {
+        self.materials
     }
 }
 

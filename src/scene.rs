@@ -53,6 +53,16 @@ impl SceneState {
         assert!(!mesh_indices.is_empty(), "no mesh in obj");
         let mesh_index = mesh_indices[0];
 
+        // TODO: try out new storage, finalize later
+        let mut storage = model::Storage::new();
+        let model_root = model_path.parent().expect("model file lies in a directory");
+        let mut mtl_manager = model::parser::SimpleMtlManager::new(model_root.to_path_buf());
+        let parsed_obj =
+            model::parser::obj::load_obj(&model_path, &mut mtl_manager).expect("worked above");
+        let index_new = storage.store_obj(parsed_obj, mtl_manager.extract_list());
+        dbg!(index_new);
+        dbg!(storage.mesh(index_new));
+
         let render_state = Rc::new(RefCell::new(
             render::RenderState::create(render_init, &target_camera, &light).unwrap(),
         ));

@@ -52,9 +52,11 @@ pub struct NormalBuffer {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct NormalBufferIndex(u32);
 
+pub struct ComputedNormals(NormalBuffer);
+
 #[expect(unused)]
 pub struct TangentBuffer {
-    pub normals: Vec<[f32; 3]>,
+    pub tangents: Vec<[f32; 3]>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -68,6 +70,18 @@ pub struct BlinnPhong {
     pub specular_base: Color,
     pub specular_exponent: f32,
     pub diffuse_map: Option<TextureIndex>,
+}
+
+impl Default for BlinnPhong {
+    fn default() -> Self {
+        Self {
+            ambient_base: Color::from(mtl::MtlKa::default()),
+            diffuse_base: Color::from(mtl::MtlKd::default()),
+            diffuse_map: None,
+            specular_base: Color::from(mtl::MtlKs::default()),
+            specular_exponent: mtl::MtlNs::default().0,
+        }
+    }
 }
 
 #[expect(unused)]
@@ -118,20 +132,23 @@ pub enum Image {
 pub struct ImageIndex(u32);
 
 #[expect(unused)]
+#[derive(Debug)]
 pub struct PrimitiveData {
     pub vertex: VertexBufferIndex,
     pub normal: Option<(NormalBufferIndex, TangentBufferIndex)>,
-    pub tex_coords: Option<TexCoordBufferIndex>,
+    pub tex_coord: Option<TexCoordBufferIndex>,
 }
 
 #[expect(unused)]
+#[derive(Debug)]
 pub struct PrimitivesNew {
     pub data: PrimitiveData,
     pub indices: IndexBufferView,
-    pub material: Option<MaterialNewIndex>,
+    pub material: MaterialNewIndex,
 }
 
 #[expect(unused)]
+#[derive(Debug)]
 pub struct MeshNew {
     pub primitives: Vec<PrimitivesNew>,
 }
@@ -149,10 +166,11 @@ pub struct Storage {
     textures: Vec<Texture>,
     images: Vec<Image>,
     meshes: Vec<MeshNew>,
+
+    obj_default_material: Option<MaterialNewIndex>,
 }
 
 impl Storage {
-    #[expect(unused)]
     pub fn new() -> Self {
         Self {
             index_buffers: Vec::new(),
@@ -164,6 +182,7 @@ impl Storage {
             textures: Vec::new(),
             images: Vec::new(),
             meshes: Vec::new(),
+            obj_default_material: None,
         }
     }
 
@@ -220,37 +239,78 @@ impl Storage {
         obj: parser::ParsedObj,
         mtls: impl IntoIterator<Item = parser::ParsedMtl>,
     ) -> MeshNewIndex {
-        let texture_map = self.store_mtls(mtls);
+        let material_indices = self.store_mtls(mtls);
         let objects = CompactedObject::separate_objects(obj);
 
-        for mut object in objects.into_iter().flat_map(MeshCombined::new) {
-            object.compute_normals();
-            let MeshCombined {
-                name,
-                vertex_buffer: vertices,
-                tex_coord_buffer: uv,
-                materials,
-                normal_buffer_computed: normals_computed,
-                normal_buffer_specified: normals_specified,
-                index_buffer: triangles,
-            } = object;
+        let primitives = objects
+            .into_iter()
+            .flat_map(MeshCombined::new)
+            .flat_map(|object| {
+                let normal_buffer = if let Some(normals) = object.normal_buffer_specified {
+                    normals
+                } else {
+                    object.compute_normals().0
+                };
 
-            let index_buffer = self.store_index_buffer(triangles);
-            let vertex_buffer = self.store_vertex_buffer(vertices);
-            let tex_coord_buffer = uv.map(|uv| self.store_tex_coord_buffer(uv));
-            let normal_buffer_computed = self.store_normal_buffer(normals_computed.unwrap());
-            let normal_buffer_specified = normals_specified.map(|n| self.store_normal_buffer(n));
+                let tangent_buffer = MeshCombined::compute_tangents(&normal_buffer);
 
-            // TODO: create index buffer slices from materials
-        }
-        todo!()
+                let MeshCombined {
+                    name,
+                    vertex_buffer,
+                    tex_coord_buffer,
+                    materials,
+                    normal_buffer_computed: _,
+                    normal_buffer_specified: _,
+                    index_buffer,
+                } = object;
+
+                let indices = self.store_index_buffer(index_buffer);
+                let vertex = self.store_vertex_buffer(vertex_buffer);
+                let tex_coord = tex_coord_buffer.map(|uv| self.store_tex_coord_buffer(uv));
+                let normal = self.store_normal_buffer(normal_buffer);
+                let tangent = self.store_tangent_buffer(tangent_buffer);
+
+                let normal = Some((normal, tangent));
+
+                materials
+                    .into_iter()
+                    .map(|(mtl_index, face_range)| {
+                        let data = PrimitiveData {
+                            vertex,
+                            normal,
+                            tex_coord,
+                        };
+
+                        let indices = IndexBufferView {
+                            buffer: indices,
+                            range: face_range.0,
+                        };
+
+                        let material = if let Some(old_index) = mtl_index {
+                            material_indices[old_index.index as usize]
+                        } else {
+                            self.use_obj_default_material()
+                        };
+
+                        PrimitivesNew {
+                            data,
+                            indices,
+                            material,
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let mesh = MeshNew { primitives };
+        self.store_mesh(mesh)
     }
 
     #[expect(unused)]
     fn store_mtls(
         &mut self,
         mtls: impl IntoIterator<Item = parser::ParsedMtl>,
-    ) -> HashMap<PathBuf, TextureIndex> {
+    ) -> Vec<MaterialNewIndex> {
         let mut texture_map: HashMap<PathBuf, TextureIndex> = HashMap::new();
 
         let mut to_index = |inner: &mut Self, path: PathBuf| {
@@ -273,59 +333,72 @@ impl Storage {
             index
         };
 
-        for mtl in mtls {
-            let mtl::ParsedMtl {
-                name,
-                ka,
-                kd,
-                ks,
-                ns,
-                map_bump,
-                map_kd,
-                ..
-            } = mtl;
+        mtls.into_iter()
+            .map(|mtl| {
+                let mtl::ParsedMtl {
+                    name,
+                    ka,
+                    kd,
+                    ks,
+                    ns,
+                    map_bump,
+                    map_kd,
+                    ..
+                } = mtl;
 
-            let ka = ka.unwrap_or_else(parser::mtl::MtlKa::default);
-            let kd = kd.unwrap_or_else(parser::mtl::MtlKd::default);
-            let ks = ks.unwrap_or_else(parser::mtl::MtlKs::default);
-            let ns = ns.unwrap_or_else(parser::mtl::MtlNs::default);
+                let ka = ka.unwrap_or_else(parser::mtl::MtlKa::default);
+                let kd = kd.unwrap_or_else(parser::mtl::MtlKd::default);
+                let ks = ks.unwrap_or_else(parser::mtl::MtlKs::default);
+                let ns = ns.unwrap_or_else(parser::mtl::MtlNs::default);
 
-            let ambient_base = Color {
-                r: ka.0,
-                g: ka.1,
-                b: ka.2,
-            };
-            let diffuse_base = Color {
-                r: kd.0,
-                g: kd.1,
-                b: kd.2,
-            };
-            let specular_base = Color {
-                r: ks.0,
-                g: kd.1,
-                b: kd.2,
-            };
-            let specular_exponent = ns.0;
+                let ambient_base = Color {
+                    r: ka.0,
+                    g: ka.1,
+                    b: ka.2,
+                };
+                let diffuse_base = Color {
+                    r: kd.0,
+                    g: kd.1,
+                    b: kd.2,
+                };
+                let specular_base = Color {
+                    r: ks.0,
+                    g: kd.1,
+                    b: kd.2,
+                };
+                let specular_exponent = ns.0;
 
-            let diffuse_map = map_kd.map(|path| to_index(self, path.0));
-            let normal_map = map_bump.map(|path| to_index(self, path.0));
+                let diffuse_map = map_kd.map(|path| to_index(self, path.0));
+                let normal_map = map_bump.map(|path| to_index(self, path.0));
 
-            let mtl = BlinnPhong {
-                ambient_base,
-                diffuse_base,
-                specular_base,
-                specular_exponent,
-                diffuse_map,
-            };
-            let mtl = MaterialNew {
-                data: MaterialType::BlinnPhong(mtl),
-                normal: normal_map,
-            };
+                let mtl = BlinnPhong {
+                    ambient_base,
+                    diffuse_base,
+                    specular_base,
+                    specular_exponent,
+                    diffuse_map,
+                };
+                let mtl = MaterialNew {
+                    data: MaterialType::BlinnPhong(mtl),
+                    normal: normal_map,
+                };
 
-            self.store_material(mtl);
+                self.store_material(mtl)
+            })
+            .collect()
+    }
+
+    fn use_obj_default_material(&mut self) -> MaterialNewIndex {
+        if let Some(index) = self.obj_default_material {
+            return index;
         }
 
-        texture_map
+        let data = BlinnPhong::default();
+        let data = MaterialType::BlinnPhong(data);
+        let default = MaterialNew { data, normal: None };
+        let index = self.store_material(default);
+        self.obj_default_material = Some(index);
+        index
     }
 
     fn store_index_buffer(&mut self, buffer: IndexBuffer) -> IndexBufferIndex {
@@ -352,7 +425,6 @@ impl Storage {
         index
     }
 
-    #[expect(unused)]
     fn store_tangent_buffer(&mut self, buffer: TangentBuffer) -> TangentBufferIndex {
         let index = TangentBufferIndex(self.tangent_buffers.len() as u32);
         self.tangent_buffers.push(buffer);
@@ -377,7 +449,6 @@ impl Storage {
         index
     }
 
-    #[expect(unused)]
     fn store_mesh(&mut self, mesh: MeshNew) -> MeshNewIndex {
         let index = MeshNewIndex(self.meshes.len() as u32);
         self.meshes.push(mesh);
@@ -857,9 +928,25 @@ pub struct MeshCombined {
     pub vertex_buffer: VertexBuffer,
     pub tex_coord_buffer: Option<TexCoordBuffer>,
     pub materials: Vec<(Option<MaterialIndexOld>, obj::FaceRange)>,
-    pub normal_buffer_computed: Option<NormalBuffer>,
+    pub normal_buffer_computed: Option<ComputedNormals>,
     pub normal_buffer_specified: Option<NormalBuffer>,
     pub index_buffer: IndexBuffer,
+}
+
+impl MeshCombined {
+    fn compute_tangents(normals: &NormalBuffer) -> TangentBuffer {
+        let tangents = normals
+            .normals
+            .iter()
+            .map(|n| {
+                let n = na::Unit::new_normalize(na::Vector3::from_row_slice(n));
+                let basis = crate::math::orthonormal_basis_for_normal(&n);
+                let t = basis.column(1);
+                [t[0], t[1], t[2]]
+            })
+            .collect();
+        TangentBuffer { tangents }
+    }
 }
 
 pub struct ModelOld {
@@ -1361,11 +1448,7 @@ impl MeshCombined {
         })
     }
 
-    fn compute_normals(&mut self) {
-        if self.normal_buffer_computed.is_some() {
-            return;
-        }
-
+    fn compute_normals(&self) -> ComputedNormals {
         let mut normals_computed = Vec::new();
         normals_computed.resize_with(self.vertex_buffer.vertices.len(), na::Vector3::zeros);
 
@@ -1387,7 +1470,7 @@ impl MeshCombined {
             normals_computed[i2 as usize] += *normal;
         }
 
-        let normals_computed = normals_computed
+        let normals = normals_computed
             .into_iter()
             .map(|n| {
                 let n = na::Unit::new_normalize(n);
@@ -1395,9 +1478,7 @@ impl MeshCombined {
             })
             .collect();
 
-        self.normal_buffer_computed = Some(NormalBuffer {
-            normals: normals_computed,
-        });
+        ComputedNormals(NormalBuffer { normals })
     }
 }
 
@@ -1407,7 +1488,7 @@ impl ModelOld {
             .into_iter()
             .flat_map(MeshCombined::new)
             .map(|mut m| {
-                m.compute_normals();
+                m.normal_buffer_computed = Some(m.compute_normals());
                 m
             })
             .collect();
@@ -1439,12 +1520,14 @@ impl render::GpuTransfer for MeshCombined {
             .iter()
             .flat_map(|&[i, j, k]| [i, j, k])
             .collect();
-        // let normals = if !self.normals_specified.is_empty() {
-        //     &self.normals_specified
-        // } else {
-        //     &self.normals_computed
-        // };
-        let normal_buffer = self.normal_buffer_computed.as_ref().unwrap();
+        let normal_buffer = if let Some(normals) = &self.normal_buffer_specified {
+            normals
+        } else if let Some(normals) = &self.normal_buffer_computed {
+            &normals.0
+        } else {
+            &self.compute_normals().0
+        };
+        // let normal_buffer = &self.normal_buffer_computed.as_ref().unwrap().0;
         assert!(normal_buffer.normals.len() == self.vertex_buffer.vertices.len());
 
         let vertices = self
