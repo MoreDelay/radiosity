@@ -73,14 +73,17 @@ impl TexturePipelines {
         &self.flat
     }
 
+    #[expect(unused)]
     pub fn get_color(&self) -> &ColorScenePipeline {
         &self.color
     }
 
+    #[expect(unused)]
     pub fn get_normal(&self) -> &NormalScenePipeline {
         &self.normal
     }
 
+    #[expect(unused)]
     pub fn get_color_normal(&self) -> &ColorNormalScenePipeline {
         &self.color_normal
     }
@@ -119,7 +122,15 @@ impl FlatScenePipeline {
             &layout,
             color_format,
             Some(resource::DepthTexture::FORMAT),
-            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
+            // &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
+            &[
+                raw::position_desc(),
+                raw::tex_coord_desc(),
+                raw::normal_desc(),
+                raw::tangent_desc(),
+                raw::bitangent_desc(),
+                raw::InstanceRaw::desc(),
+            ],
             shader,
             Some("FlatPipeline"),
         );
@@ -303,7 +314,15 @@ impl ShadowPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
+                // buffers: &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
+                buffers: &[
+                    raw::position_desc(),
+                    raw::tex_coord_desc(),
+                    raw::normal_desc(),
+                    raw::tangent_desc(),
+                    raw::bitangent_desc(),
+                    raw::InstanceRaw::desc(),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {

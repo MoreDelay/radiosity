@@ -205,6 +205,66 @@ where
     }
 }
 
+pub fn position_desc() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: 3 * std::mem::size_of::<f32>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 0,
+        }],
+    }
+}
+
+pub fn tex_coord_desc() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: 2 * std::mem::size_of::<f32>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x2,
+            offset: 0,
+            shader_location: 1,
+        }],
+    }
+}
+
+pub fn normal_desc() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: 3 * std::mem::size_of::<f32>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 2,
+        }],
+    }
+}
+
+pub fn tangent_desc() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: 3 * std::mem::size_of::<f32>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 3,
+        }],
+    }
+}
+
+pub fn bitangent_desc() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: 3 * std::mem::size_of::<f32>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 4,
+        }],
+    }
+}
+
 impl VertexRaw {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {

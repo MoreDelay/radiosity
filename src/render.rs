@@ -1,15 +1,11 @@
-use std::{
-    num::NonZeroU32,
-    ops::{Deref, Range},
-    sync::Arc,
-};
+use std::{num::NonZeroU32, sync::Arc};
 
 use anyhow::Result;
 use winit::window::Window;
 
 use crate::{
     camera, model,
-    render::resource::{ModelResourceStorage, TextureDims},
+    render::resource::{ResourceStorage, TextureDims},
 };
 
 mod pipeline;
@@ -17,7 +13,18 @@ mod raw;
 mod resource;
 
 pub use raw::*;
-pub use resource::{InstanceBufferIndex, MaterialBindingIndex, MeshBufferIndex};
+pub use resource::{
+    BiTangentBufferIndex,
+    DrawCall,
+    DrawWorld,
+    IndexBufferIndex,
+    InstanceBufferIndex,
+    MaterialBindingIndex,
+    NormalBufferIndex,
+    PositionBufferIndex,
+    TangentBufferIndex,
+    TexCoordBufferIndex, //
+};
 
 #[derive(Copy, Clone, Debug)]
 pub enum PipelineMode {
@@ -50,19 +57,9 @@ pub struct RenderState {
     shadow_depth_texture: resource::DepthTexture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
+    #[expect(unused)]
     light_pipeline: pipeline::LightPipeline,
-    model_resource_storage: ModelResourceStorage,
-}
-
-pub trait DrawMaterial: Iterator<Item = DrawSlice> {
-    fn get_index(&self) -> MaterialBindingIndex;
-}
-
-pub struct DrawSlice {
-    pub buffer_index: MeshBufferIndex,
-    pub slice: Range<u32>,
-    pub instance_index: Option<InstanceBufferIndex>,
-    pub pipeline_mode: PipelineMode,
+    model_resource_storage: ResourceStorage,
 }
 
 impl RenderStateInit {
@@ -202,7 +199,7 @@ impl RenderState {
         let light_pipeline =
             pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
 
-        let model_resource_storage = ModelResourceStorage::new();
+        let model_resource_storage = ResourceStorage::new();
 
         Ok(Self {
             surface,
@@ -250,15 +247,9 @@ impl RenderState {
         self.camera_binding.update(&self.queue, data);
     }
 
-    pub fn draw<I, D>(
-        &mut self,
-        mtl_iter: I,
-        light_mesh_index: Option<MeshBufferIndex>,
-    ) -> Result<(), wgpu::SurfaceError>
-    where
-        I: Iterator<Item = D> + Clone,
-        D: DrawMaterial,
-    {
+    pub fn draw(&mut self, draw_world: resource::DrawWorld) -> Result<(), wgpu::SurfaceError> {
+        let sorted_draws = draw_world.sort(&self.model_resource_storage);
+
         // blocks until surface provides render target
         let output = self.surface.get_current_texture()?;
         let view = output
@@ -312,35 +303,66 @@ impl RenderState {
             shadow_render_pass.set_bind_group(0, bind, &[]);
             shadow_render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
 
-            for mesh_iter in mtl_iter.clone() {
-                for draw_slice in mesh_iter {
-                    let DrawSlice {
-                        buffer_index,
-                        slice,
-                        instance_index,
-                        ..
-                    } = draw_slice;
+            for &index in sorted_draws.iter() {
+                let draw = &draw_world.draw_calls[index as usize];
 
-                    let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
+                let index = self.model_resource_storage.index_buffer(draw.index);
 
-                    let instance_slice = if let Some(instance_index) = instance_index {
-                        let instances = self
-                            .model_resource_storage
-                            .get_instance_buffer(instance_index);
+                let position = self.model_resource_storage.position_buffer(draw.position);
+                let tex_coord = self.model_resource_storage.tex_coord_buffer(draw.tex_coord);
+                let normal = self.model_resource_storage.normal_buffer(draw.normal);
+                let tangent = self.model_resource_storage.tangent_buffer(draw.tangent);
+                let bi_tangent = self
+                    .model_resource_storage
+                    .bi_tangent_buffer(draw.bi_tangent);
 
-                        shadow_render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
-                        0..instances.num_instances
-                    } else {
-                        0..1 // default to use when no instances are set, per wgpu docs
-                    };
+                let instance = self
+                    .model_resource_storage
+                    .get_instance_buffer(draw.instance);
 
-                    shadow_render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                    shadow_render_pass
-                        .set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                shadow_render_pass
+                    .set_index_buffer(index.buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-                    shadow_render_pass.draw_indexed(slice, 0, instance_slice);
-                }
+                shadow_render_pass.set_vertex_buffer(0, position.buffer.slice(..));
+                shadow_render_pass.set_vertex_buffer(1, tex_coord.buffer.slice(..));
+                shadow_render_pass.set_vertex_buffer(2, normal.buffer.slice(..));
+                shadow_render_pass.set_vertex_buffer(3, tangent.buffer.slice(..));
+                shadow_render_pass.set_vertex_buffer(4, bi_tangent.buffer.slice(..));
+
+                shadow_render_pass.set_vertex_buffer(5, instance.buffer.slice(..));
+
+                shadow_render_pass.draw_indexed(draw.slice.clone(), 0, 0..instance.num_instances);
             }
+
+            // for mesh_iter in mtl_iter.clone() {
+            //     for draw_slice in mesh_iter {
+            //         let DrawSlice {
+            //             buffer_index,
+            //             slice,
+            //             instance_index,
+            //             ..
+            //         } = draw_slice;
+            //
+            //         let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
+            //
+            //         let instance_slice = if let Some(instance_index) = instance_index {
+            //             let instances = self
+            //                 .model_resource_storage
+            //                 .get_instance_buffer(instance_index);
+            //
+            //             shadow_render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
+            //             0..instances.num_instances
+            //         } else {
+            //             0..1 // default to use when no instances are set, per wgpu docs
+            //         };
+            //
+            //         shadow_render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+            //         shadow_render_pass
+            //             .set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+            //
+            //         shadow_render_pass.draw_indexed(slice, 0, instance_slice);
+            //     }
+            // }
         }
 
         // render models
@@ -378,94 +400,139 @@ impl RenderState {
         render_pass.set_bind_group(0, &self.camera_binding.bind_group, &[]);
         render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
 
-        for mesh_iter in mtl_iter {
-            let material = self
-                .model_resource_storage
-                .get_material_binding(mesh_iter.get_index());
-            render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
+        let mut current_material = None;
+        for &index in sorted_draws.iter() {
+            let draw = &draw_world.draw_calls[index as usize];
 
-            for draw_slice in mesh_iter {
-                let DrawSlice {
-                    buffer_index,
-                    slice,
-                    instance_index,
-                    pipeline_mode,
-                } = draw_slice;
+            if current_material.is_none_or(|mtl| mtl != draw.material) {
+                let material = self
+                    .model_resource_storage
+                    .get_material_binding(draw.material);
+                render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
 
-                match pipeline_mode {
-                    PipelineMode::ColorNormal
-                        if material.color.is_some() && material.normal.is_some() =>
-                    {
-                        let pipeline = self.texture_pipelines.get_color_normal().deref();
-                        let color_bind_group = material
-                            .color
-                            .as_ref()
-                            .expect("requested pipeline requires corresponding texture")
-                            .deref();
-                        let normal_bind_group = material
-                            .normal
-                            .as_ref()
-                            .expect("requested pipeline requires corresponding texture")
-                            .deref();
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, color_bind_group, &[]);
-                        render_pass.set_bind_group(4, normal_bind_group, &[]);
-                    }
-                    PipelineMode::Color if material.color.is_some() => {
-                        let pipeline = self.texture_pipelines.get_color().deref();
-                        let color_bind_group = material
-                            .color
-                            .as_ref()
-                            .expect("requested pipeline requires corresponding texture")
-                            .deref();
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, color_bind_group, &[]);
-                    }
-                    PipelineMode::Normal if material.normal.is_some() => {
-                        let pipeline = self.texture_pipelines.get_normal().deref();
-                        let normal_bind_group = material
-                            .normal
-                            .as_ref()
-                            .expect("requested pipeline requires corresponding texture")
-                            .deref();
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, normal_bind_group, &[]);
-                    }
-                    _ => {
-                        let pipeline = self.texture_pipelines.get_flat().deref();
-                        let texture = &self.shadow_binding.cube_bind;
-                        render_pass.set_pipeline(pipeline);
-                        render_pass.set_bind_group(3, texture, &[]);
-                    }
-                }
-
-                let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
-
-                let instance_slice = if let Some(instance_index) = instance_index {
-                    let instances = self
-                        .model_resource_storage
-                        .get_instance_buffer(instance_index);
-
-                    render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
-                    0..instances.num_instances
-                } else {
-                    0..1 // default to use when no instances are set, per wgpu docs
-                };
-
-                render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                render_pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-
-                render_pass.draw_indexed(slice, 0, instance_slice);
+                current_material = Some(draw.material);
             }
+
+            let pipeline = &self.texture_pipelines.get_flat();
+            render_pass.set_pipeline(pipeline);
+            let shadow_texture = &self.shadow_binding.cube_bind;
+            render_pass.set_bind_group(3, shadow_texture, &[]);
+
+            let index = self.model_resource_storage.index_buffer(draw.index);
+
+            let position = self.model_resource_storage.position_buffer(draw.position);
+            let tex_coord = self.model_resource_storage.tex_coord_buffer(draw.tex_coord);
+            let normal = self.model_resource_storage.normal_buffer(draw.normal);
+            let tangent = self.model_resource_storage.tangent_buffer(draw.tangent);
+            let bi_tangent = self
+                .model_resource_storage
+                .bi_tangent_buffer(draw.bi_tangent);
+
+            let instance = self
+                .model_resource_storage
+                .get_instance_buffer(draw.instance);
+
+            render_pass.set_index_buffer(index.buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+            render_pass.set_vertex_buffer(0, position.buffer.slice(..));
+            render_pass.set_vertex_buffer(1, tex_coord.buffer.slice(..));
+            render_pass.set_vertex_buffer(2, normal.buffer.slice(..));
+            render_pass.set_vertex_buffer(3, tangent.buffer.slice(..));
+            render_pass.set_vertex_buffer(4, bi_tangent.buffer.slice(..));
+
+            render_pass.set_vertex_buffer(5, instance.buffer.slice(..));
+
+            render_pass.draw_indexed(draw.slice.clone(), 0, 0..instance.num_instances);
         }
 
-        // light pass
-        if let Some(index) = light_mesh_index {
-            render_pass.set_pipeline(self.light_pipeline.deref());
-            let buffer = self.model_resource_storage.get_mesh_buffer(index);
-            render_pass.set_vertex_buffer(0, buffer.vertices.slice(..));
-            render_pass.draw_indexed(0..buffer.num_indices, 0, 0..1);
-        }
+        // for mesh_iter in mtl_iter {
+        //     let material = self
+        //         .model_resource_storage
+        //         .get_material_binding(mesh_iter.get_index());
+        //     render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
+        //
+        //     for draw_slice in mesh_iter {
+        //         let DrawSlice {
+        //             buffer_index,
+        //             slice,
+        //             instance_index,
+        //             pipeline_mode,
+        //         } = draw_slice;
+        //
+        //         match pipeline_mode {
+        //             PipelineMode::ColorNormal
+        //                 if material.color.is_some() && material.normal.is_some() =>
+        //             {
+        //                 let pipeline = self.texture_pipelines.get_color_normal().deref();
+        //                 let color_bind_group = material
+        //                     .color
+        //                     .as_ref()
+        //                     .expect("requested pipeline requires corresponding texture")
+        //                     .deref();
+        //                 let normal_bind_group = material
+        //                     .normal
+        //                     .as_ref()
+        //                     .expect("requested pipeline requires corresponding texture")
+        //                     .deref();
+        //                 render_pass.set_pipeline(pipeline);
+        //                 render_pass.set_bind_group(3, color_bind_group, &[]);
+        //                 render_pass.set_bind_group(4, normal_bind_group, &[]);
+        //             }
+        //             PipelineMode::Color if material.color.is_some() => {
+        //                 let pipeline = self.texture_pipelines.get_color().deref();
+        //                 let color_bind_group = material
+        //                     .color
+        //                     .as_ref()
+        //                     .expect("requested pipeline requires corresponding texture")
+        //                     .deref();
+        //                 render_pass.set_pipeline(pipeline);
+        //                 render_pass.set_bind_group(3, color_bind_group, &[]);
+        //             }
+        //             PipelineMode::Normal if material.normal.is_some() => {
+        //                 let pipeline = self.texture_pipelines.get_normal().deref();
+        //                 let normal_bind_group = material
+        //                     .normal
+        //                     .as_ref()
+        //                     .expect("requested pipeline requires corresponding texture")
+        //                     .deref();
+        //                 render_pass.set_pipeline(pipeline);
+        //                 render_pass.set_bind_group(3, normal_bind_group, &[]);
+        //             }
+        //             _ => {
+        //                 let pipeline = self.texture_pipelines.get_flat().deref();
+        //                 let texture = &self.shadow_binding.cube_bind;
+        //                 render_pass.set_pipeline(pipeline);
+        //                 render_pass.set_bind_group(3, texture, &[]);
+        //             }
+        //         }
+        //
+        //         let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
+        //
+        //         let instance_slice = if let Some(instance_index) = instance_index {
+        //             let instances = self
+        //                 .model_resource_storage
+        //                 .get_instance_buffer(instance_index);
+        //
+        //             render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
+        //             0..instances.num_instances
+        //         } else {
+        //             0..1 // default to use when no instances are set, per wgpu docs
+        //         };
+        //
+        //         render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
+        //         render_pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+        //
+        //         render_pass.draw_indexed(slice, 0, instance_slice);
+        //     }
+        // }
+
+        // // light pass
+        // if let Some(index) = light_mesh_index {
+        //     render_pass.set_pipeline(self.light_pipeline.deref());
+        //     let buffer = self.model_resource_storage.get_mesh_buffer(index);
+        //     render_pass.set_vertex_buffer(0, buffer.vertices.slice(..));
+        //     render_pass.draw_indexed(0..buffer.num_indices, 0, 0..1);
+        // }
 
         // render pass recording ends when dropped
         drop(render_pass);
@@ -474,6 +541,60 @@ impl RenderState {
         output.present();
 
         Ok(())
+    }
+
+    pub fn upload_index_buffer(
+        &mut self,
+        data: &[u32],
+        label: Option<&str>,
+    ) -> resource::IndexBufferIndex {
+        self.model_resource_storage
+            .upload_index_buffer(&self.device, data, label)
+    }
+
+    pub fn upload_position_buffer(
+        &mut self,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> resource::PositionBufferIndex {
+        self.model_resource_storage
+            .upload_position_buffer(&self.device, data, label)
+    }
+
+    pub fn upload_tex_coord_buffer(
+        &mut self,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> resource::TexCoordBufferIndex {
+        self.model_resource_storage
+            .upload_tex_coord_buffer(&self.device, data, label)
+    }
+
+    pub fn upload_normal_buffer(
+        &mut self,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> resource::NormalBufferIndex {
+        self.model_resource_storage
+            .upload_normal_buffer(&self.device, data, label)
+    }
+
+    pub fn upload_tangent_buffer(
+        &mut self,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> resource::TangentBufferIndex {
+        self.model_resource_storage
+            .upload_tangent_buffer(&self.device, data, label)
+    }
+
+    pub fn upload_bi_tangent_buffer(
+        &mut self,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> resource::BiTangentBufferIndex {
+        self.model_resource_storage
+            .upload_bi_tangent_buffer(&self.device, data, label)
     }
 
     pub fn add_material(
@@ -493,14 +614,14 @@ impl RenderState {
         )
     }
 
-    pub fn add_mesh_buffer(
-        &mut self,
-        mesh: &model::MeshCombined,
-        label: Option<&str>,
-    ) -> MeshBufferIndex {
-        self.model_resource_storage
-            .upload_mesh(&self.device, mesh, label)
-    }
+    // pub fn add_mesh_buffer(
+    //     &mut self,
+    //     mesh: &model::MeshCombined,
+    //     label: Option<&str>,
+    // ) -> MeshBufferIndex {
+    //     self.model_resource_storage
+    //         .upload_mesh(&self.device, mesh, label)
+    // }
 
     pub fn add_instance_buffer(
         &mut self,

@@ -5,185 +5,294 @@ use std::{
     rc::Rc,
 };
 
+use nalgebra as na;
+
 use crate::{model, render};
 
 #[derive(Debug)]
-struct FaceIndexSlice(Range<u32>);
-
-#[derive(Debug, Clone, Copy)]
-struct MeshInfo {
-    buffer_index: render::MeshBufferIndex,
-    instance_index: Option<render::InstanceBufferIndex>,
-    visible: bool,
-    pipeline_mode: render::PipelineMode,
+pub struct IndexInfo {
+    pub index: render::IndexBufferIndex,
+    pub slice: Range<u32>,
 }
 
 #[derive(Debug)]
-struct MaterialSubscription {
-    slice: FaceIndexSlice,
-    mesh_index: model::MeshIndexOld,
+pub struct PrimitiveDataNew {
+    pub position: render::PositionBufferIndex,
+    pub tex_coord: render::TexCoordBufferIndex,
+    pub normal: render::NormalBufferIndex,
+    pub tangent: render::TangentBufferIndex,
+    pub bi_tangent: render::BiTangentBufferIndex,
 }
 
 #[derive(Debug)]
-struct MaterialInfo {
-    binding_index: render::MaterialBindingIndex,
-    subscribed_meshes: Vec<MaterialSubscription>,
+pub struct PrimitiveInfo {
+    pub data: PrimitiveDataNew,
+    pub indices: IndexInfo,
+    pub material: render::MaterialBindingIndex,
+}
+
+#[derive(Debug)]
+pub struct MeshInfoNew {
+    pub primitives: Vec<PrimitiveInfo>,
+    pub instance: render::InstanceBufferIndex,
 }
 
 pub struct DrawManager {
     render_state: Rc<RefCell<render::RenderState>>,
-    materials: HashMap<Option<model::MaterialIndexOld>, MaterialInfo>,
-    meshes: HashMap<model::MeshIndexOld, MeshInfo>,
+    #[expect(unused)]
+    storage: Rc<RefCell<model::Storage>>,
+    meshes: HashMap<model::MeshNewIndex, MeshInfoNew>,
+
+    // translations between model asset and render resource handles
+    map_index: HashMap<model::IndexBufferIndex, render::IndexBufferIndex>,
+    map_position: HashMap<model::VertexBufferIndex, render::PositionBufferIndex>,
+    map_tex_coord: HashMap<model::TexCoordBufferIndex, render::TexCoordBufferIndex>,
+    map_normal: HashMap<model::NormalBufferIndex, render::NormalBufferIndex>,
+    map_tangent: HashMap<model::TangentBufferIndex, render::TangentBufferIndex>,
+    map_bi_tangent: HashMap<
+        (model::NormalBufferIndex, model::TangentBufferIndex),
+        render::BiTangentBufferIndex,
+    >,
+    map_material: HashMap<model::MaterialNewIndex, render::MaterialBindingIndex>,
 }
 
 impl DrawManager {
-    pub fn new(render_state: Rc<RefCell<render::RenderState>>) -> Self {
+    pub fn new(
+        render_state: Rc<RefCell<render::RenderState>>,
+        storage: Rc<RefCell<model::Storage>>,
+    ) -> Self {
         Self {
             render_state,
-            materials: HashMap::new(),
+            storage,
             meshes: HashMap::new(),
+            map_index: HashMap::new(),
+            map_position: HashMap::new(),
+            map_tex_coord: HashMap::new(),
+            map_normal: HashMap::new(),
+            map_tangent: HashMap::new(),
+            map_bi_tangent: HashMap::new(),
+            map_material: HashMap::new(),
         }
-    }
-
-    pub fn draw_iter(&self) -> DrawIterator<'_> {
-        let iterator = self.materials.iter();
-        DrawIterator {
-            manager: self,
-            iterator,
-        }
-    }
-
-    pub fn set_pipeline(&mut self, pipeline: render::PipelineMode, index: model::MeshIndexOld) {
-        let mesh_info = self
-            .meshes
-            .get_mut(&index)
-            .expect("only set pipeline for drawn meshes");
-        mesh_info.pipeline_mode = pipeline;
-    }
-
-    fn add_material(
-        &mut self,
-        storage: &model::ModelStorage,
-        material_index: Option<model::MaterialIndexOld>,
-        label: Option<&str>,
-    ) {
-        if self.materials.contains_key(&material_index) {
-            return;
-        }
-
-        let material = storage.get_material(material_index);
-        let binding_index = self.render_state.borrow_mut().add_material(material, label);
-        let material_info = MaterialInfo {
-            binding_index,
-            subscribed_meshes: Vec::new(),
-        };
-        self.materials.insert(material_index, material_info);
     }
 
     pub fn add_mesh(
         &mut self,
-        storage: &model::ModelStorage,
-        mesh_index: model::MeshIndexOld,
-        instance_index: Option<render::InstanceBufferIndex>,
+        storage: &model::Storage,
+        mesh_index: model::MeshNewIndex,
+        instance: render::InstanceBufferIndex,
         label: Option<&str>,
     ) {
-        let mesh = storage.get_mesh(mesh_index);
-        assert!(!mesh.index_buffer.triangles.is_empty());
-        let buffer_index = self.render_state.borrow_mut().add_mesh_buffer(mesh, label);
+        let mut render_state = self.render_state.borrow_mut();
 
-        let mesh_info = MeshInfo {
-            buffer_index,
-            instance_index,
-            visible: true,
-            pipeline_mode: render::PipelineMode::Flat,
+        let mesh = storage.mesh(mesh_index);
+
+        let primitives = mesh
+            .primitives
+            .iter()
+            .map(|p| {
+                let model::PrimitiveNew {
+                    data,
+                    indices,
+                    material,
+                } = p;
+
+                let model::PrimitiveData {
+                    vertex,
+                    normal,
+                    tex_coord,
+                } = data;
+
+                let position = match self.map_position.entry(*vertex) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let data = &storage.vertex_buffer(*entry.key()).vertices;
+                        let data = bytemuck::cast_slice(data);
+                        let index = render_state.upload_position_buffer(data, label);
+                        *entry.insert(index)
+                    }
+                };
+
+                let tex_coord = tex_coord.unwrap();
+                let tex_coord = match self.map_tex_coord.entry(tex_coord) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let data = &storage.tex_coord_buffer(*entry.key()).vertices;
+                        let data = bytemuck::cast_slice(data);
+                        let index = render_state.upload_tex_coord_buffer(data, label);
+                        *entry.insert(index)
+                    }
+                };
+
+                let (normal_index, tangent_index) = normal.unwrap();
+                let normal = match self.map_normal.entry(normal_index) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let data = &storage.normal_buffer(*entry.key()).normals;
+                        let data = bytemuck::cast_slice(data);
+                        let index = render_state.upload_normal_buffer(data, label);
+                        *entry.insert(index)
+                    }
+                };
+                let tangent = match self.map_tangent.entry(tangent_index) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let data = &storage.tangent_buffer(*entry.key()).tangents;
+                        let data = bytemuck::cast_slice(data);
+                        let index = render_state.upload_tangent_buffer(data, label);
+                        *entry.insert(index)
+                    }
+                };
+                let bi_tangent = match self.map_bi_tangent.entry((normal_index, tangent_index)) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let (n, t) = *entry.key();
+                        let n = storage.normal_buffer(n);
+                        let t = storage.tangent_buffer(t);
+                        let data = n
+                            .normals
+                            .iter()
+                            .zip(t.tangents.iter())
+                            .map(|(n, t)| {
+                                let n = na::Vector3::from_column_slice(n);
+                                let t = na::Vector3::from_column_slice(t);
+                                let b = na::Unit::new_normalize(n.cross(&t));
+                                [b[0], b[1], b[2]]
+                            })
+                            .collect::<Vec<_>>();
+                        let data = bytemuck::cast_slice(&data);
+                        let index = render_state.upload_bi_tangent_buffer(data, label);
+                        *entry.insert(index)
+                    }
+                };
+
+                let data = PrimitiveDataNew {
+                    position,
+                    tex_coord,
+                    normal,
+                    tangent,
+                    bi_tangent,
+                };
+
+                let index = match self.map_index.entry(indices.buffer) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let data = storage
+                            .index_buffer(*entry.key())
+                            .triangles
+                            .iter()
+                            .flatten()
+                            .copied()
+                            .collect::<Vec<_>>();
+                        let index = render_state.upload_index_buffer(&data, label);
+                        *entry.insert(index)
+                    }
+                };
+
+                let indices = IndexInfo {
+                    index,
+                    slice: indices.range.clone(),
+                };
+
+                let material = match self.map_material.entry(*material) {
+                    hash_map::Entry::Occupied(entry) => *entry.get(),
+                    hash_map::Entry::Vacant(entry) => {
+                        let data = storage.material(*entry.key());
+                        let model::MaterialType::BlinnPhong(phong_params) = &data.data;
+                        let diffuse_map = phong_params.diffuse_map.map(|i| {
+                            let texture = storage.texture(i);
+                            let image = storage.image(texture.image);
+                            let data = match image {
+                                model::Image::Path(path) => {
+                                    let image = image::ImageReader::open(dbg!(path))
+                                        .unwrap()
+                                        .decode()
+                                        .unwrap();
+                                    image.into()
+                                }
+                                model::Image::Data { data, .. } => data.clone(),
+                            };
+                            model::ColorTexture(data)
+                        });
+                        let phong_params = model::BlinnPhongOld {
+                            ambient_base: phong_params.ambient_base,
+                            diffuse_color: phong_params.diffuse_base,
+                            specular_color: phong_params.specular_base,
+                            specular_exponent: phong_params.specular_exponent,
+                            diffuse_map,
+                        };
+
+                        let normal_texture = data.normal.map(|i| {
+                            let texture = storage.texture(i);
+                            let image = storage.image(texture.image);
+                            let data = match image {
+                                model::Image::Path(path) => {
+                                    let image =
+                                        image::ImageReader::open(path).unwrap().decode().unwrap();
+                                    image.into()
+                                }
+                                model::Image::Data { data, .. } => data.clone(),
+                            };
+                            model::NormalTextureOld(data)
+                        });
+                        let data = model::MaterialOld {
+                            name: "Test".to_string(),
+                            phong_params,
+                            normal_texture,
+                        };
+                        let index = render_state.add_material(&data, label);
+                        *entry.insert(index)
+                    }
+                };
+
+                PrimitiveInfo {
+                    data,
+                    indices,
+                    material,
+                }
+            })
+            .collect();
+
+        let mesh_info = MeshInfoNew {
+            primitives,
+            instance,
         };
         self.meshes.insert(mesh_index, mesh_info);
-
-        self.add_material(storage, None, label);
-
-        let slice = 0..mesh.index_buffer.triangles.len() as u32;
-        let slice = FaceIndexSlice(slice);
-        let subscription = MaterialSubscription { slice, mesh_index };
-        self.materials
-            .get_mut(&None)
-            .expect("made sure it exists before")
-            .subscribed_meshes
-            .push(subscription);
     }
 
-    pub fn get_buffer_index(&self, index: model::MeshIndexOld) -> Option<render::MeshBufferIndex> {
-        let mesh_info = self.meshes.get(&index);
-        mesh_info.map(|info| info.buffer_index)
-    }
-}
+    pub fn create_draw(&self) -> render::DrawWorld {
+        let draw_calls = self
+            .meshes
+            .values()
+            .flat_map(|mesh| {
+                let instance = mesh.instance;
+                mesh.primitives.iter().map(move |prim| {
+                    let material = prim.material;
+                    let IndexInfo { index, ref slice } = prim.indices;
+                    let slice = slice.clone();
 
-#[derive(Clone)]
-pub struct DrawIterator<'a> {
-    manager: &'a DrawManager,
-    iterator: hash_map::Iter<'a, Option<model::MaterialIndexOld>, MaterialInfo>,
-}
+                    let PrimitiveDataNew {
+                        position,
+                        tex_coord,
+                        normal,
+                        tangent,
+                        bi_tangent,
+                    } = prim.data;
 
-#[derive(Clone)]
-pub struct DrawMaterialIterator<'a> {
-    manager: &'a DrawManager,
-    material_info: &'a MaterialInfo,
-    iterator: std::slice::Iter<'a, MaterialSubscription>,
-}
+                    render::DrawCall {
+                        material,
+                        instance,
+                        index,
+                        slice,
+                        position,
+                        tex_coord,
+                        normal,
+                        tangent,
+                        bi_tangent,
+                    }
+                })
+            })
+            .collect();
 
-impl<'a> Iterator for DrawIterator<'a> {
-    type Item = DrawMaterialIterator<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (_, material_info) = self.iterator.next()?;
-        let iterator = material_info.subscribed_meshes.iter();
-
-        Some(DrawMaterialIterator {
-            manager: self.manager,
-            material_info,
-            iterator,
-        })
-    }
-}
-
-impl<'a> Iterator for DrawMaterialIterator<'a> {
-    type Item = render::DrawSlice;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        for subscription in self.iterator.by_ref() {
-            let MaterialSubscription { slice, mesh_index } = subscription;
-            let mesh_info = self
-                .manager
-                .meshes
-                .get(mesh_index)
-                .expect("subscribed mesh should be actual datastructure");
-
-            if !mesh_info.visible {
-                continue;
-            }
-
-            let &MeshInfo {
-                buffer_index,
-                instance_index,
-                visible: _,
-                pipeline_mode,
-            } = mesh_info;
-
-            let slice = slice.0.clone();
-            let slice = slice.start * 3..slice.end * 3;
-            let draw_slice = render::DrawSlice {
-                buffer_index,
-                slice,
-                instance_index,
-                pipeline_mode,
-            };
-            return Some(draw_slice);
-        }
-        None
-    }
-}
-
-impl<'a> render::DrawMaterial for DrawMaterialIterator<'a> {
-    fn get_index(&self) -> render::MaterialBindingIndex {
-        self.material_info.binding_index
+        render::DrawWorld { draw_calls }
     }
 }

@@ -57,6 +57,8 @@ impl MtlManager for SimpleMtlManager {
         let loaded_mtls = mtl::parse_mtl(&path)?;
         let mut mtls_in_this_lib = HashSet::new();
 
+        let new_root = path.parent().expect("file lies within a folder");
+
         for mtl in loaded_mtls {
             mtls_in_this_lib.insert(mtl.name.clone());
 
@@ -64,6 +66,16 @@ impl MtlManager for SimpleMtlManager {
             match self.name_mapping.entry(mtl.name.clone()) {
                 Entry::Occupied(_) => continue,
                 Entry::Vacant(entry) => {
+                    let mut mtl = mtl;
+                    if let Some(map_ka) = &mut mtl.map_ka {
+                        map_ka.0 = new_root.join(&map_ka.0);
+                    }
+                    if let Some(map_kd) = &mut mtl.map_kd {
+                        map_kd.0 = new_root.join(&map_kd.0);
+                    }
+                    if let Some(map_bump) = &mut mtl.map_bump {
+                        map_bump.0 = new_root.join(&map_bump.0);
+                    }
                     let index = self.materials.len() as u32;
                     entry.insert(index);
                     self.materials.push(mtl);

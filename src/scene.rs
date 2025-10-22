@@ -14,8 +14,9 @@ pub struct SceneState {
     last_time: std::time::Instant,
     #[expect(unused)]
     model_storage: model::ModelStorage,
+    #[expect(unused)]
+    storage: Rc<RefCell<model::Storage>>,
     manager: manager::DrawManager,
-    mesh_index: model::MeshIndexOld,
     #[expect(unused)]
     instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,
@@ -51,23 +52,25 @@ impl SceneState {
         let mut model_storage = model::ModelStorage::new();
         let mesh_indices = model_storage.load_meshes(&model_path).unwrap();
         assert!(!mesh_indices.is_empty(), "no mesh in obj");
-        let mesh_index = mesh_indices[0];
+        // let mesh_index = mesh_indices[0];
 
         // TODO: try out new storage, finalize later
-        let mut storage = model::Storage::new();
+        let storage = Rc::new(RefCell::new(model::Storage::new()));
         let model_root = model_path.parent().expect("model file lies in a directory");
         let mut mtl_manager = model::parser::SimpleMtlManager::new(model_root.to_path_buf());
         let parsed_obj =
             model::parser::obj::load_obj(&model_path, &mut mtl_manager).expect("worked above");
-        let index_new = storage.store_obj(parsed_obj, mtl_manager.extract_list());
+        let index_new = storage
+            .borrow_mut()
+            .store_obj(parsed_obj, mtl_manager.extract_list());
         dbg!(index_new);
-        dbg!(storage.mesh(index_new));
+        dbg!(storage.borrow().mesh(index_new));
 
         let render_state = Rc::new(RefCell::new(
             render::RenderState::create(render_init, &target_camera, &light).unwrap(),
         ));
 
-        let mut manager = manager::DrawManager::new(Rc::clone(&render_state));
+        let mut manager = manager::DrawManager::new(Rc::clone(&render_state), Rc::clone(&storage));
 
         // let instances = (0..model::NUM_INSTANCES_PER_ROW)
         //     .flat_map(|z| {
@@ -97,16 +100,9 @@ impl SceneState {
             .borrow_mut()
             .add_instance_buffer(&instances, Some("Grid"));
 
-        manager.add_mesh(
-            &model_storage,
-            mesh_index,
-            Some(instance_index),
-            Some("Cube"),
-        );
+        manager.add_mesh(&storage.borrow(), index_new, instance_index, Some("Cube"));
 
         let pipeline_mode = render::PipelineMode::Flat;
-        manager.set_pipeline(pipeline_mode, mesh_index);
-
         let use_first_person_camera = false;
 
         SceneState {
@@ -115,8 +111,8 @@ impl SceneState {
             use_first_person_camera,
             last_time,
             model_storage,
+            storage,
             manager,
-            mesh_index,
             instances,
             target_camera,
             first_person_camera,
@@ -212,11 +208,8 @@ impl SceneState {
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
-        // self.render_state.draw(self.pipeline_mode)
-        let mesh_buffer_index = self.manager.get_buffer_index(self.mesh_index);
-        self.render_state
-            .borrow_mut()
-            .draw(self.manager.draw_iter(), mesh_buffer_index)
+        let draw_world = self.manager.create_draw();
+        self.render_state.borrow_mut().draw(draw_world)
     }
 
     /// returns true if paused after toggling
@@ -233,7 +226,6 @@ impl SceneState {
             Normal => ColorNormal,
             ColorNormal => Flat,
         };
-        self.manager.set_pipeline(next_mode, self.mesh_index);
         self.pipeline_mode = next_mode;
         next_mode
     }

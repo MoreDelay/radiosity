@@ -23,7 +23,6 @@ pub struct IndexBuffer {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct IndexBufferIndex(u32);
 
-#[expect(unused)]
 #[derive(Clone, Debug)]
 pub struct IndexBufferView {
     pub buffer: IndexBufferIndex,
@@ -37,7 +36,6 @@ pub struct VertexBuffer {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct VertexBufferIndex(u32);
 
-#[expect(unused)]
 pub struct TexCoordBuffer {
     pub vertices: Vec<[f32; 2]>,
 }
@@ -54,7 +52,6 @@ pub struct NormalBufferIndex(u32);
 
 pub struct ComputedNormals(NormalBuffer);
 
-#[expect(unused)]
 pub struct TangentBuffer {
     pub tangents: Vec<[f32; 3]>,
 }
@@ -62,7 +59,6 @@ pub struct TangentBuffer {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TangentBufferIndex(u32);
 
-#[expect(unused)]
 #[derive(Clone, Debug)]
 pub struct BlinnPhong {
     pub ambient_base: Color,
@@ -84,13 +80,11 @@ impl Default for BlinnPhong {
     }
 }
 
-#[expect(unused)]
 pub enum MaterialType {
     BlinnPhong(BlinnPhong),
     // TODO: Add Metallic Roughness type
 }
 
-#[expect(unused)]
 pub struct MaterialNew {
     pub data: MaterialType,
     pub normal: Option<TextureIndex>,
@@ -131,7 +125,6 @@ pub enum Image {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ImageIndex(u32);
 
-#[expect(unused)]
 #[derive(Debug)]
 pub struct PrimitiveData {
     pub vertex: VertexBufferIndex,
@@ -139,18 +132,16 @@ pub struct PrimitiveData {
     pub tex_coord: Option<TexCoordBufferIndex>,
 }
 
-#[expect(unused)]
 #[derive(Debug)]
-pub struct PrimitivesNew {
+pub struct PrimitiveNew {
     pub data: PrimitiveData,
     pub indices: IndexBufferView,
     pub material: MaterialNewIndex,
 }
 
-#[expect(unused)]
 #[derive(Debug)]
 pub struct MeshNew {
-    pub primitives: Vec<PrimitivesNew>,
+    pub primitives: Vec<PrimitiveNew>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -186,42 +177,34 @@ impl Storage {
         }
     }
 
-    #[expect(unused)]
     pub fn index_buffer(&self, index: IndexBufferIndex) -> &IndexBuffer {
         &self.index_buffers[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn vertex_buffer(&self, index: VertexBufferIndex) -> &VertexBuffer {
         &self.vertex_buffers[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn tex_coord_buffer(&self, index: TexCoordBufferIndex) -> &TexCoordBuffer {
         &self.tex_coord_buffers[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn normal_buffer(&self, index: NormalBufferIndex) -> &NormalBuffer {
         &self.normal_buffers[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn tangent_buffer(&self, index: TangentBufferIndex) -> &TangentBuffer {
         &self.tangent_buffers[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn material(&self, index: MaterialNewIndex) -> &MaterialNew {
         &self.materials[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn texture(&self, index: TextureIndex) -> &Texture {
         &self.textures[index.0 as usize]
     }
 
-    #[expect(unused)]
     pub fn image(&self, index: ImageIndex) -> &Image {
         &self.images[index.0 as usize]
     }
@@ -232,7 +215,6 @@ impl Storage {
 }
 
 impl Storage {
-    #[expect(unused)]
     pub fn store_obj(
         &mut self,
         obj: parser::ParsedObj,
@@ -254,7 +236,7 @@ impl Storage {
                 let tangent_buffer = MeshCombined::compute_tangents(&normal_buffer);
 
                 let MeshCombined {
-                    name,
+                    name: _,
                     vertex_buffer,
                     tex_coord_buffer,
                     materials,
@@ -291,7 +273,7 @@ impl Storage {
                             self.use_obj_default_material()
                         };
 
-                        PrimitivesNew {
+                        PrimitiveNew {
                             data,
                             indices,
                             material,
@@ -305,7 +287,6 @@ impl Storage {
         self.store_mesh(mesh)
     }
 
-    #[expect(unused)]
     fn store_mtls(
         &mut self,
         mtls: impl IntoIterator<Item = parser::ParsedMtl>,
@@ -335,7 +316,6 @@ impl Storage {
         mtls.into_iter()
             .map(|mtl| {
                 let mtl::ParsedMtl {
-                    name,
                     ka,
                     kd,
                     ks,
@@ -923,6 +903,7 @@ pub struct MaterialOld {
 pub struct Triangle(VertexIndex, VertexIndex, VertexIndex);
 
 pub struct MeshCombined {
+    #[expect(unused)]
     pub name: Option<String>,
     pub vertex_buffer: VertexBuffer,
     pub tex_coord_buffer: Option<TexCoordBuffer>,
@@ -960,10 +941,12 @@ impl ModelStorage {
         }
     }
 
+    #[expect(unused)]
     pub fn get_mesh(&self, MeshIndexOld { index }: MeshIndexOld) -> &MeshCombined {
         &self.meshes[index as usize]
     }
 
+    #[expect(unused)]
     pub fn get_material(&self, index: Option<MaterialIndexOld>) -> &MaterialOld {
         static DEFAULT: LazyLock<MaterialOld> = LazyLock::new(|| MaterialOld {
             name: String::from("Default"),
