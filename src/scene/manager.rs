@@ -188,10 +188,10 @@ impl DrawManager {
                     }
                 };
 
-                let indices = IndexInfo {
-                    index,
-                    slice: indices.range.clone(),
-                };
+                let Range { start, end } = indices.range;
+                let slice = start * 3..end * 3;
+
+                let indices = IndexInfo { index, slice };
 
                 let material = match self.map_material.entry(*material) {
                     hash_map::Entry::Occupied(entry) => *entry.get(),
