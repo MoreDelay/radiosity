@@ -1,9 +1,6 @@
 use nalgebra as na;
 
-use crate::{
-    model,
-    render::{GpuTransfer, LightRaw},
-};
+use crate::{model, render::LightRaw};
 
 #[derive(Debug, Copy, Clone)]
 pub struct Light {
@@ -46,16 +43,15 @@ impl Light {
     }
 }
 
-impl GpuTransfer for Light {
-    type Raw = LightRaw;
-    fn to_raw(&self) -> Self::Raw {
+impl Light {
+    pub fn to_raw(&self) -> LightRaw {
         let Self {
             pos,
             color,
             max_dist,
             ..
         } = *self;
-        Self::Raw {
+        LightRaw {
             position: pos.into(),
             max_dist,
             color: color.into(),

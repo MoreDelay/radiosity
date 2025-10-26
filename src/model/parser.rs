@@ -28,7 +28,6 @@ pub struct SimpleMtlManager {
     name_mapping: HashMap<String, u32>,
 }
 
-#[expect(unused)]
 impl SimpleMtlManager {
     pub fn new(root_dir: PathBuf) -> Self {
         Self {
@@ -38,10 +37,12 @@ impl SimpleMtlManager {
         }
     }
 
+    #[expect(unused)]
     pub fn len(&self) -> usize {
         self.materials.len()
     }
 
+    #[expect(unused)]
     pub fn get(&self, index: usize) -> Option<&mtl::ParsedMtl> {
         self.materials.get(index)
     }

@@ -39,8 +39,6 @@ pub struct MeshInfoNew {
 
 pub struct DrawManager {
     render_state: Rc<RefCell<render::RenderState>>,
-    #[expect(unused)]
-    storage: Rc<RefCell<model::Storage>>,
     meshes: HashMap<model::MeshNewIndex, MeshInfoNew>,
 
     // translations between model asset and render resource handles
@@ -57,13 +55,9 @@ pub struct DrawManager {
 }
 
 impl DrawManager {
-    pub fn new(
-        render_state: Rc<RefCell<render::RenderState>>,
-        storage: Rc<RefCell<model::Storage>>,
-    ) -> Self {
+    pub fn new(render_state: Rc<RefCell<render::RenderState>>) -> Self {
         Self {
             render_state,
-            storage,
             meshes: HashMap::new(),
             map_index: HashMap::new(),
             map_position: HashMap::new(),
@@ -201,45 +195,21 @@ impl DrawManager {
                         let diffuse_map = phong_params.diffuse_map.map(|i| {
                             let texture = storage.texture(i);
                             let image = storage.image(texture.image);
-                            let data = match image {
-                                model::Image::Path(path) => {
-                                    let image = image::ImageReader::open(dbg!(path))
-                                        .unwrap()
-                                        .decode()
-                                        .unwrap();
-                                    image.into()
-                                }
-                                model::Image::Data { data, .. } => data.clone(),
-                            };
-                            model::ColorTexture(data)
+                            image
                         });
-                        let phong_params = model::BlinnPhongOld {
-                            ambient_base: phong_params.ambient_base,
-                            diffuse_color: phong_params.diffuse_base,
-                            specular_color: phong_params.specular_base,
-                            specular_exponent: phong_params.specular_exponent,
-                            diffuse_map,
-                        };
 
                         let normal_texture = data.normal.map(|i| {
                             let texture = storage.texture(i);
                             let image = storage.image(texture.image);
-                            let data = match image {
-                                model::Image::Path(path) => {
-                                    let image =
-                                        image::ImageReader::open(path).unwrap().decode().unwrap();
-                                    image.into()
-                                }
-                                model::Image::Data { data, .. } => data.clone(),
-                            };
-                            model::NormalTextureOld(data)
+                            image
                         });
-                        let data = model::MaterialOld {
-                            name: "Test".to_string(),
-                            phong_params,
+
+                        let index = render_state.add_material(
+                            &phong_params.to_raw(),
+                            diffuse_map,
                             normal_texture,
-                        };
-                        let index = render_state.add_material(&data, label);
+                            label,
+                        );
                         *entry.insert(index)
                     }
                 };

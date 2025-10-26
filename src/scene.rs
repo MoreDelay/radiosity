@@ -13,8 +13,6 @@ pub struct SceneState {
     use_first_person_camera: bool,
     last_time: std::time::Instant,
     #[expect(unused)]
-    model_storage: model::ModelStorage,
-    #[expect(unused)]
     storage: Rc<RefCell<model::Storage>>,
     manager: manager::DrawManager,
     #[expect(unused)]
@@ -49,10 +47,6 @@ impl SceneState {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let model_path = root.join("resources/sibenik/sibenik.obj");
         // let model_path = root.join("resources/cube/cube.obj");
-        let mut model_storage = model::ModelStorage::new();
-        let mesh_indices = model_storage.load_meshes(&model_path).unwrap();
-        assert!(!mesh_indices.is_empty(), "no mesh in obj");
-        // let mesh_index = mesh_indices[0];
 
         // TODO: try out new storage, finalize later
         let storage = Rc::new(RefCell::new(model::Storage::new()));
@@ -67,10 +61,11 @@ impl SceneState {
         dbg!(storage.borrow().mesh(index_new));
 
         let render_state = Rc::new(RefCell::new(
-            render::RenderState::create(render_init, &target_camera, &light).unwrap(),
+            render::RenderState::create(render_init, &target_camera.to_raw(), &light.to_raw())
+                .unwrap(),
         ));
 
-        let mut manager = manager::DrawManager::new(Rc::clone(&render_state), Rc::clone(&storage));
+        let mut manager = manager::DrawManager::new(Rc::clone(&render_state));
 
         // let instances = (0..model::NUM_INSTANCES_PER_ROW)
         //     .flat_map(|z| {
@@ -110,7 +105,6 @@ impl SceneState {
             render_state,
             use_first_person_camera,
             last_time,
-            model_storage,
             storage,
             manager,
             instances,
@@ -130,11 +124,11 @@ impl SceneState {
             if self.use_first_person_camera {
                 self.render_state
                     .borrow_mut()
-                    .update_camera(&self.first_person_camera);
+                    .update_camera(&self.first_person_camera.to_raw());
             } else {
                 self.render_state
                     .borrow_mut()
-                    .update_camera(&self.target_camera);
+                    .update_camera(&self.target_camera.to_raw());
             }
         }
 
@@ -156,7 +150,9 @@ impl SceneState {
         self.last_time = std::time::Instant::now();
         let moved = self.light.step(epsilon);
         if moved {
-            self.render_state.borrow_mut().update_light(&self.light);
+            self.render_state
+                .borrow_mut()
+                .update_light(&self.light.to_raw());
         }
 
         if self.use_first_person_camera {
@@ -164,7 +160,7 @@ impl SceneState {
             if moved {
                 self.render_state
                     .borrow_mut()
-                    .update_camera(&self.first_person_camera);
+                    .update_camera(&self.first_person_camera.to_raw());
             }
         }
     }
@@ -174,12 +170,12 @@ impl SceneState {
             self.first_person_camera.rotate(movement);
             self.render_state
                 .borrow_mut()
-                .update_camera(&self.first_person_camera);
+                .update_camera(&self.first_person_camera.to_raw());
         } else {
             self.target_camera.rotate(movement);
             self.render_state
                 .borrow_mut()
-                .update_camera(&self.target_camera);
+                .update_camera(&self.target_camera.to_raw());
         }
     }
 
@@ -190,7 +186,7 @@ impl SceneState {
         self.target_camera.go_near();
         self.render_state
             .borrow_mut()
-            .update_camera(&self.target_camera);
+            .update_camera(&self.target_camera.to_raw());
     }
 
     pub fn go_away(&mut self) {
@@ -200,7 +196,7 @@ impl SceneState {
         self.target_camera.go_away();
         self.render_state
             .borrow_mut()
-            .update_camera(&self.target_camera);
+            .update_camera(&self.target_camera.to_raw());
     }
 
     pub fn set_movement(&mut self, dir: camera::DirectionKey, active: bool) {
@@ -235,11 +231,11 @@ impl SceneState {
         if self.use_first_person_camera {
             self.render_state
                 .borrow_mut()
-                .update_camera(&self.first_person_camera);
+                .update_camera(&self.first_person_camera.to_raw());
         } else {
             self.render_state
                 .borrow_mut()
-                .update_camera(&self.target_camera);
+                .update_camera(&self.target_camera.to_raw());
         }
         self.use_first_person_camera
     }

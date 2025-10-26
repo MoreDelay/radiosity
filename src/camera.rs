@@ -1,6 +1,6 @@
 use nalgebra as na;
 
-use crate::render::{CameraRaw, GpuTransfer};
+use crate::render::CameraRaw;
 
 #[derive(Debug, Copy, Clone)]
 pub struct FrameDim(pub u32, pub u32);
@@ -145,13 +145,12 @@ impl TargetCamera {
     }
 }
 
-impl GpuTransfer for TargetCamera {
-    type Raw = CameraRaw;
-    fn to_raw(&self) -> Self::Raw {
+impl TargetCamera {
+    pub fn to_raw(&self) -> CameraRaw {
         let view_pos = self.pos.into();
         let view_proj = self.build_view_projection_matrix().into();
 
-        Self::Raw {
+        CameraRaw {
             view_pos,
             _padding: 0,
             view_proj,
@@ -270,13 +269,12 @@ impl FirstPersonCamera {
     }
 }
 
-impl GpuTransfer for FirstPersonCamera {
-    type Raw = CameraRaw;
-    fn to_raw(&self) -> Self::Raw {
+impl FirstPersonCamera {
+    pub fn to_raw(&self) -> CameraRaw {
         let view_pos = self.pos.into();
         let view_proj = self.build_view_projection_matrix().into();
 
-        Self::Raw {
+        CameraRaw {
             view_pos,
             _padding: 0,
             view_proj,

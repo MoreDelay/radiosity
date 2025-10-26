@@ -86,13 +86,13 @@ pub enum MtlReflection {
     FresnelAndRayTrace,
 }
 
-#[expect(unused)]
 #[derive(Debug, Clone, Copy, Default)]
 pub enum MtlIllum {
     Flat,
     Ambient,
     #[default]
     Specular,
+    #[expect(unused)]
     SpecialMode {
         transparency: MtlTransparency,
         reflection: MtlReflection,

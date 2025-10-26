@@ -137,12 +137,12 @@ impl RenderStateInit {
 }
 
 impl RenderState {
-    #[allow(clippy::too_many_arguments)]
-    pub fn create<C, L>(init: RenderStateInit, camera: &C, light: &L) -> anyhow::Result<Self>
-    where
-        C: GpuTransfer<Raw = CameraRaw>,
-        L: GpuTransfer<Raw = LightRaw>,
-    {
+    #[expect(clippy::too_many_arguments)]
+    pub fn create(
+        init: RenderStateInit,
+        camera: &CameraRaw,
+        light: &LightRaw,
+    ) -> anyhow::Result<Self> {
         let RenderStateInit {
             surface,
             device,
@@ -174,13 +174,8 @@ impl RenderState {
             height: NonZeroU32::new(1024).unwrap(),
         };
         let shadow_layout = resource::ShadowLayouts::new(&device);
-        let shadow_binding = resource::ShadowBindings::new(
-            &device,
-            &shadow_layout,
-            dims,
-            &light.to_raw(),
-            Some("Shadow"),
-        );
+        let shadow_binding =
+            resource::ShadowBindings::new(&device, &shadow_layout, dims, light, Some("Shadow"));
         let shadow_depth_texture =
             resource::DepthTexture::new(&device, dims, Some("shadow_depth_texture"));
 
@@ -238,12 +233,12 @@ impl RenderState {
         }
     }
 
-    pub fn update_light<L: GpuTransfer<Raw = LightRaw>>(&self, data: &L) {
+    pub fn update_light(&self, data: &LightRaw) {
         self.light_binding.update(&self.queue, data);
-        self.shadow_binding.update(&self.queue, &data.to_raw());
+        self.shadow_binding.update(&self.queue, data);
     }
 
-    pub fn update_camera<C: GpuTransfer<Raw = CameraRaw>>(&self, data: &C) {
+    pub fn update_camera(&self, data: &CameraRaw) {
         self.camera_binding.update(&self.queue, data);
     }
 
@@ -599,7 +594,9 @@ impl RenderState {
 
     pub fn add_material(
         &mut self,
-        material: &model::MaterialOld,
+        phong: &PhongRaw,
+        color: Option<&model::Image>,
+        normal: Option<&model::Image>,
         label: Option<&str>,
     ) -> MaterialBindingIndex {
         self.model_resource_storage.upload_material(
@@ -607,9 +604,9 @@ impl RenderState {
             &self.queue,
             &self.phong_layout,
             &self.texture_layout,
-            &material.phong_params,
-            material.phong_params.diffuse_map.as_ref(),
-            material.normal_texture.as_ref(),
+            phong,
+            color,
+            normal,
             label,
         )
     }

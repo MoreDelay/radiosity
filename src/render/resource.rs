@@ -10,10 +10,9 @@ use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
 use zerocopy::IntoBytes;
 
-use super::{
-    CameraRaw, GpuTransfer, GpuTransferTexture, InstanceBufferRaw, LightRaw, PhongRaw,
-    TriangleBufferRaw,
-};
+use crate::model;
+
+use super::{CameraRaw, LightRaw, PhongRaw};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextureDims {
@@ -92,21 +91,9 @@ pub struct ShadowBindings {
 }
 
 // 3D model resources
-#[expect(unused)]
-pub struct MeshBuffer {
-    pub vertices: wgpu::Buffer,
-    pub indices: wgpu::Buffer,
-    pub num_indices: u32,
-}
 pub struct InstanceBuffer {
     pub buffer: wgpu::Buffer,
     pub num_instances: u32,
-}
-
-#[expect(unused)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MeshBufferIndex {
-    index: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -305,24 +292,21 @@ impl PhongBindGroupLayout {
 
 impl MaterialBindings {
     #[expect(clippy::too_many_arguments)]
-    pub fn new<P, T, N>(
+    pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         phong_layout: &PhongBindGroupLayout,
         texture_layout: &TextureBindGroupLayout,
-        phong: &P,
-        color_texture: Option<&T>,
-        normal_texture: Option<&N>,
+        phong: &PhongRaw,
+        color_texture: Option<&model::Image>,
+        normal_texture: Option<&model::Image>,
         label: Option<&str>,
-    ) -> Self
-    where
-        P: GpuTransfer<Raw = PhongRaw>,
-        T: GpuTransferTexture,
-        N: GpuTransferTexture,
-    {
+    ) -> Self {
         let color = color_texture.map(|t| {
             let texture_label = label.map(|s| format!("{s}-ColorTexture"));
-            let texture = t.create_texture(device, queue, texture_label.as_deref());
+            let texture = t
+                .to_raw()
+                .create_texture(device, queue, texture_label.as_deref());
             let entries = [
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -346,7 +330,9 @@ impl MaterialBindings {
 
         let normal = normal_texture.map(|t| {
             let texture_label = label.map(|s| format!("{s}-NormalTexture"));
-            let texture = t.create_texture(device, queue, texture_label.as_deref());
+            let texture = t
+                .to_raw()
+                .create_texture(device, queue, texture_label.as_deref());
             let entries = [
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -380,20 +366,15 @@ impl MaterialBindings {
 }
 
 impl CameraBinding {
-    pub fn new<C>(
+    pub fn new(
         device: &wgpu::Device,
         layout: &CameraBindGroupLayout,
-        data: &C,
+        data: &CameraRaw,
         label: Option<&str>,
-    ) -> Self
-    where
-        C: GpuTransfer<Raw = CameraRaw>,
-    {
-        let raw_data = data.to_raw();
-
+    ) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s}-CameraBuffer")).as_deref(),
-            contents: bytemuck::cast_slice(&[raw_data]),
+            contents: bytemuck::cast_slice(&[*data]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -407,35 +388,26 @@ impl CameraBinding {
         Self { bind_group, buffer }
     }
 
-    pub fn update<C>(&self, queue: &wgpu::Queue, data: &C)
-    where
-        C: GpuTransfer<Raw = CameraRaw>,
-    {
+    pub fn update(&self, queue: &wgpu::Queue, data: &CameraRaw) {
         // make sure size unwrap never panics
         const_assert_ne!(std::mem::size_of::<CameraRaw>(), 0);
         let size = NonZeroU64::try_from(std::mem::size_of::<CameraRaw>() as u64).unwrap();
 
         let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
-        let raw_data = data.to_raw();
-        view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
+        view.copy_from_slice(bytemuck::cast_slice(&[*data]));
     }
 }
 
 impl LightBinding {
-    pub fn new<L>(
+    pub fn new(
         device: &wgpu::Device,
         layout: &LightBindGroupLayout,
-        data: &L,
+        data: &LightRaw,
         label: Option<&str>,
-    ) -> Self
-    where
-        L: GpuTransfer<Raw = LightRaw>,
-    {
-        let raw_data = data.to_raw();
-
+    ) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s}-LightBuffer")).as_deref(),
-            contents: bytemuck::cast_slice(&[raw_data]),
+            contents: bytemuck::cast_slice(&[*data]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -449,17 +421,13 @@ impl LightBinding {
         Self { bind_group, buffer }
     }
 
-    pub fn update<L>(&self, queue: &wgpu::Queue, data: &L)
-    where
-        L: GpuTransfer<Raw = LightRaw>,
-    {
+    pub fn update(&self, queue: &wgpu::Queue, data: &LightRaw) {
         // make sure size unwrap never panics
         const_assert_ne!(std::mem::size_of::<LightRaw>(), 0);
         let size = NonZeroU64::try_from(std::mem::size_of::<LightRaw>() as u64).unwrap();
 
         let mut view = queue.write_buffer_with(&self.buffer, 0, size).unwrap();
-        let raw_data = data.to_raw();
-        view.copy_from_slice(bytemuck::cast_slice(&[raw_data]));
+        view.copy_from_slice(bytemuck::cast_slice(&[*data]));
     }
 }
 
@@ -665,20 +633,15 @@ impl ShadowBindings {
 }
 
 impl PhongBinding {
-    pub fn new<P>(
+    pub fn new(
         device: &wgpu::Device,
         layout: &PhongBindGroupLayout,
-        data: &P,
+        data: &PhongRaw,
         label: Option<&str>,
-    ) -> Self
-    where
-        P: GpuTransfer<Raw = PhongRaw>,
-    {
-        let raw_data = data.to_raw();
-
+    ) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: label.map(|s| format!("{s}-PhongBuffer")).as_deref(),
-            contents: bytemuck::cast_slice(&[raw_data]),
+            contents: bytemuck::cast_slice(&[*data]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -693,39 +656,12 @@ impl PhongBinding {
     }
 }
 
-impl MeshBuffer {
-    #[expect(unused)]
-    pub fn new<M>(device: &wgpu::Device, mesh: &M, label: Option<&str>) -> Self
-    where
-        M: GpuTransfer<Raw = TriangleBufferRaw>,
-    {
-        let TriangleBufferRaw { vertices, indices } = mesh.to_raw();
-
-        let num_indices = indices.len() as u32;
-        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: label.map(|s| format!("{s}-VertexBuffer")).as_deref(),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: label.map(|s| format!("{s}-IndexBuffer")).as_deref(),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        Self {
-            vertices,
-            indices,
-            num_indices,
-        }
-    }
-}
-
 impl InstanceBuffer {
-    pub fn new<I>(device: &wgpu::Device, instances: &I, label: Option<&str>) -> Self
-    where
-        I: GpuTransfer<Raw = InstanceBufferRaw>,
-    {
-        let InstanceBufferRaw { instances } = instances.to_raw();
+    pub fn new(device: &wgpu::Device, instances: &[model::Instance], label: Option<&str>) -> Self {
+        let instances = instances
+            .iter()
+            .map(|instance| instance.to_raw())
+            .collect::<Vec<_>>();
         let num_instances = instances.len() as u32;
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1036,15 +972,12 @@ impl ResourceStorage {
     //     MeshBufferIndex { index }
     // }
 
-    pub fn upload_instance<I>(
+    pub fn upload_instance(
         &mut self,
         device: &wgpu::Device,
-        instances: &I,
+        instances: &[model::Instance],
         label: Option<&str>,
-    ) -> InstanceBufferIndex
-    where
-        I: GpuTransfer<Raw = InstanceBufferRaw>,
-    {
+    ) -> InstanceBufferIndex {
         let index = self.instance_buffers.len();
         self.instance_buffers
             .push(InstanceBuffer::new(device, instances, label));
@@ -1052,22 +985,17 @@ impl ResourceStorage {
     }
 
     #[expect(clippy::too_many_arguments)]
-    pub fn upload_material<P, T, N>(
+    pub fn upload_material(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         phong_layout: &PhongBindGroupLayout,
         texture_layout: &TextureBindGroupLayout,
-        phong: &P,
-        color_texture: Option<&T>,
-        normal_texture: Option<&N>,
+        phong: &PhongRaw,
+        color_texture: Option<&model::Image>,
+        normal_texture: Option<&model::Image>,
         label: Option<&str>,
-    ) -> MaterialBindingIndex
-    where
-        P: GpuTransfer<Raw = PhongRaw>,
-        T: GpuTransferTexture,
-        N: GpuTransferTexture,
-    {
+    ) -> MaterialBindingIndex {
         let index = self.material_bindings.len();
         self.material_bindings.push(MaterialBindings::new(
             device,

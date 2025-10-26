@@ -6,55 +6,52 @@ use super::resource::Texture;
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CameraRaw {
-    /// EXPECTS: finite homogeneous position in right-handed coordinates (w != 0)
+    /// finite homogeneous position in right-handed coordinates (w != 0)
     pub view_pos: [f32; 3],
     // WGSL uniforms expect 4 float / 16 bytes alignment
     // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
     pub _padding: u32,
-    /// EXPECTS: column-major homogeneous transformation matrix
+    /// column-major homogeneous transformation matrix
     pub view_proj: [[f32; 4]; 4],
 }
-impl private::RawLayout for CameraRaw {}
 
 /// Data format used to transfer light information to the GPU.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightRaw {
-    /// EXPECTS: position in right-handed coordinates
+    /// position in right-handed coordinates
     pub position: [f32; 3],
-    /// EXPECT: far plane of light
+    /// far plane of light
     pub max_dist: f32,
-    /// EXPECTS: rgb values in interval [0, 1]
+    /// rgb values in interval [0, 1]
     pub color: [f32; 3],
     // WGSL uniforms expect 4 float / 16 bytes alignment
     // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
     pub _padding: u32,
 }
-impl private::RawLayout for LightRaw {}
 
 /// Data format used to transfer light information to the GPU.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PhongRaw {
-    /// EXPECTS: rgb values in interval [0, 1]
+    /// rgb values in interval [0, 1]
     pub specular_color: [f32; 3],
     pub specular_exponent: f32,
-    /// EXPECTS: rgb values in interval [0, 1]
+    /// rgb values in interval [0, 1]
     pub diffuse_color: [f32; 3],
     // WGSL uniforms expect 4 float / 16 bytes alignment
     // more info at: https://www.w3.org/TR/WGSL/#alignment-and-size
     pub _padding1: u32,
-    /// EXPECTS: rgb values in interval [0, 1]
+    /// rgb values in interval [0, 1]
     pub ambient_color: [f32; 3],
     pub _padding2: u32,
 }
-impl private::RawLayout for PhongRaw {}
 
 // /// Data format used to transfer light information to the GPU.
 // #[repr(C)]
 // #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 // pub struct CubeViewRaw {
-//     /// EXPECTS: column-major homogeneous transformation matrix
+//     /// column-major homogeneous transformation matrix
 //     pub view_proj: [[f32; 4]; 4],
 // }
 // impl private::RawLayout for CubeViewRaw {}
@@ -63,100 +60,49 @@ impl private::RawLayout for PhongRaw {}
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VertexRaw {
-    /// EXPECTS: position in right-handed coordinates
+    /// position in right-handed coordinates
     pub position: [f32; 3],
-    /// EXPECTS: uv coordinates into texture in interval [0, 1]
+    /// uv coordinates into texture in interval [0, 1]
     pub tex_coords: [f32; 2],
-    /// EXPECTS: surface normal of vector with unit length
+    /// surface normal of vector with unit length
     pub normal: [f32; 3],
-    /// EXPECTS: vector tangent to surface with unit length
+    /// vector tangent to surface with unit length
     pub tangent: [f32; 3],
-    /// EXPECTS: vector tangent to surface with unit length and orthogonal to tangent
+    /// vector tangent to surface with unit length and orthogonal to tangent
     pub bitangent: [f32; 3],
 }
-impl private::RawLayout for VertexRaw {}
 
 /// Data format used to transfer information for a model instance to the GPU.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
-    /// EXPECTS: column-major homogeneous transformation matrix in world space
+    /// column-major homogeneous transformation matrix in world space
     pub model: [[f32; 4]; 4],
-    /// EXPECTS: column-major rotation transformation matrix, 3x3 submatrix of `model`
+    /// column-major rotation transformation matrix, 3x3 submatrix of `model`
     pub normal: [[f32; 3]; 3],
 }
-impl private::RawLayout for InstanceRaw {}
-
-/// Data format used to transfer an vertex buffer for triangles and its triangle indices to the GPU.
-pub struct TriangleBufferRaw {
-    /// EXPECTS: all vertices of a single mesh
-    pub vertices: Box<[VertexRaw]>,
-    /// EXPECTS: indices into vertices that define mesh with triangles, length is multiple of 3
-    pub indices: Box<[u32]>,
-}
-impl private::RawLayout for TriangleBufferRaw {}
-
-/// Data format used to transfer an instance buffer to the GPU.
-pub struct InstanceBufferRaw {
-    /// EXPECTS: all instances to draw
-    pub instances: Box<[InstanceRaw]>,
-}
-impl private::RawLayout for InstanceBufferRaw {}
 
 /// Data format used to transfer textures to the GPU.
-pub struct TextureRaw<'a> {
-    /// EXPECTS: Slice size depending on `size` and `format`.
+pub struct TextureRaw {
+    /// Slice size depending on `size` and `format`.
     /// Multiply all values from `size` together, and multiply into it the byte size of the `format`.
-    pub data: &'a [u8],
+    pub data: Box<[u8]>,
     pub format: wgpu::TextureFormat,
     pub size: wgpu::Extent3d,
 }
-impl<'a> private::RawLayoutRef<'a> for TextureRaw<'a> {}
 
-/// Trait to enable generating data in a format that can be transfered to the GPU.
-///
-/// The allowed data formats are sealed so that only implemented formats are used which have
-/// pre-defined associated uses.
-///
-/// This trait specifically is mainly used for data that is destined for Uniform buffers.
-pub trait GpuTransfer {
-    type Raw: private::RawLayout;
-    fn to_raw(&self) -> Self::Raw;
-}
-
-/// Trait to enable generating data in a format that can be transfered to the GPU.
-///
-/// The allowed data formats are sealed so that only implemented formats are used which have
-/// pre-defined associated uses.
-///
-/// This trait specifically is mainly used for data that is destined for variable length buffers
-/// such as vertex buffers or texture buffers.
-pub trait GpuTransferRef<'a> {
-    type Raw: private::RawLayoutRef<'a>;
-    fn to_raw(&'a self) -> Self::Raw;
-}
-
-/// Helper trait to enable blanket implementation for creating textures
-pub trait GpuTransferTexture {
-    fn create_texture(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        label: Option<&str>,
-    ) -> Texture;
-}
-
-impl<T> GpuTransferTexture for T
-where
-    T: for<'a> GpuTransferRef<'a, Raw = TextureRaw<'a>>,
-{
-    fn create_texture(
+impl TextureRaw {
+    pub fn create_texture(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         label: Option<&str>,
     ) -> Texture {
-        let TextureRaw { data, format, size } = self.to_raw();
+        let &TextureRaw {
+            ref data,
+            format,
+            size,
+        } = self;
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
@@ -347,11 +293,4 @@ impl InstanceRaw {
             ],
         }
     }
-}
-
-mod private {
-    pub trait RawLayout {}
-    // Perhaps because only a single layout (`TextureRaw`) uses this constraint trait, it is
-    // getting marked as unused. Keep it for future additions.
-    pub trait RawLayoutRef<'a> {}
 }
