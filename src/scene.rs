@@ -26,9 +26,9 @@ impl SceneState {
     pub fn new(window: Arc<Window>) -> Self {
         let (ctx, target) = pollster::block_on(render::create_render_instance(window));
 
-        let pos = 10f32 * na::Vector3::new(0.0, 4.0, 7.0);
+        let pos = 1f32 * na::Vector3::new(0.0, 4.0, 7.0);
         let focus = na::Vector3::new(0.0, 0.0, 2.0);
-        let distance = 10.;
+        let distance = 1.;
         let frame = target.get_frame_dim();
         let target_camera = camera::TargetCamera::new(pos, focus, distance, frame);
         let direction = na::Unit::new_normalize(focus - pos);
@@ -45,10 +45,9 @@ impl SceneState {
         let last_time = std::time::Instant::now();
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let model_path = root.join("resources/sibenik/sibenik.obj");
-        // let model_path = root.join("resources/cube/cube.obj");
+        // let model_path = root.join("resources/sibenik/sibenik.obj");
+        let model_path = root.join("resources/cube/cube.obj");
 
-        // TODO: try out new storage, finalize later
         let storage = Rc::new(RefCell::new(model::Storage::new()));
         let model_root = model_path.parent().expect("model file lies in a directory");
         let mut mtl_manager = model::parser::SimpleMtlManager::new(model_root.to_path_buf());
@@ -57,8 +56,6 @@ impl SceneState {
         let index_new = storage
             .borrow_mut()
             .store_obj(parsed_obj, mtl_manager.extract_list());
-        dbg!(index_new);
-        dbg!(storage.borrow().mesh(index_new));
 
         let render_state = Rc::new(RefCell::new(
             render::RenderState::create(ctx, target, &target_camera.to_raw(), &light.to_raw())
@@ -67,29 +64,31 @@ impl SceneState {
 
         let mut manager = manager::DrawManager::new(Rc::clone(&render_state));
 
-        // let instances = (0..model::NUM_INSTANCES_PER_ROW)
-        //     .flat_map(|z| {
-        //         (0..model::NUM_INSTANCES_PER_ROW).map(move |x| {
-        //             let x = SPACE_BETWEEN * (x as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
-        //             let z = SPACE_BETWEEN * (z as f32 - model::NUM_INSTANCES_PER_ROW as f32 / 2.);
-        //
-        //             let position = na::Vector3::new(x, 0.0, z);
-        //             let rotation = if position == na::Vector3::zeros() {
-        //                 na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.)
-        //             } else {
-        //                 na::UnitQuaternion::from_axis_angle(
-        //                     &na::Unit::new_normalize(position),
-        //                     std::f32::consts::FRAC_PI_8,
-        //                 )
-        //             };
-        //             model::Instance { position, rotation }
-        //         })
-        //     })
-        //     .collect::<Vec<_>>();
-        let instances = vec![model::Instance {
-            position: na::Vector3::zeros(),
-            rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
-        }];
+        const NUM_INSTANCES_PER_ROW: usize = 5;
+        const SPACE_BETWEEN: f32 = 3.;
+        let instances = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.);
+                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.);
+
+                    let position = na::Vector3::new(x, 0.0, z);
+                    let rotation = if position == na::Vector3::zeros() {
+                        na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.)
+                    } else {
+                        na::UnitQuaternion::from_axis_angle(
+                            &na::Unit::new_normalize(position),
+                            std::f32::consts::FRAC_PI_8,
+                        )
+                    };
+                    model::Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+        // let instances = vec![model::Instance {
+        //     position: na::Vector3::zeros(),
+        //     rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
+        // }];
 
         let instance_index = render_state
             .borrow_mut()

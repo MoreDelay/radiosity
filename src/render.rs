@@ -123,8 +123,7 @@ pub async fn create_render_instance(window: Arc<Window>) -> (GpuContext, TargetC
 pub struct RenderState {
     ctx: GpuContext,
     target: TargetContext,
-    phong_layout: resource::PhongBindGroupLayout,
-    texture_layout: resource::TextureBindGroupLayout,
+    layouts: resource::PhongLayouts,
     texture_pipelines: pipeline::TexturePipelines,
     depth_texture: resource::DepthTexture,
     shadow_binding: resource::ShadowBindings,
@@ -150,54 +149,37 @@ impl RenderState {
         };
         let depth_texture = resource::DepthTexture::new(&ctx, depth_dims, Some("depth_texture"));
 
-        let texture_layout = resource::TextureBindGroupLayout::new(&ctx);
+        let layouts = resource::PhongLayouts::new(&ctx);
+        let camera_binding = resource::CameraBinding::new(&ctx, &layouts, camera, Some("Single"));
 
-        let camera_layout = resource::CameraBindGroupLayout::new(&ctx);
-        let camera_binding =
-            resource::CameraBinding::new(&ctx, &camera_layout, camera, Some("Single"));
-
-        let light_layout = resource::LightBindGroupLayout::new(&ctx);
-        let light_binding = resource::LightBinding::new(&ctx, &light_layout, light, Some("Single"));
-
-        let phong_layout = resource::PhongBindGroupLayout::new(&ctx);
+        let light_binding = resource::LightBinding::new(&ctx, &layouts, light, Some("Single"));
 
         let dims = TextureDims {
             width: NonZeroU32::new(1024).unwrap(),
             height: NonZeroU32::new(1024).unwrap(),
         };
-        let shadow_layout = resource::ShadowLayouts::new(&ctx);
         let shadow_binding =
-            resource::ShadowBindings::new(&ctx, &shadow_layout, dims, light, Some("Shadow"));
+            resource::ShadowBindings::new(&ctx, &layouts, dims, light, Some("Shadow"));
         let shadow_depth_texture =
             resource::DepthTexture::new(&ctx, dims, Some("shadow_depth_texture"));
 
-        let texture_pipelines = pipeline::TexturePipelines::new(
-            &ctx,
-            &target,
-            &texture_layout,
-            &camera_layout,
-            &light_layout,
-            &shadow_layout,
-            &phong_layout,
-        )?;
-        let shadow_pipeline = pipeline::ShadowPipeline::new(&ctx, &shadow_layout, &light_layout)?;
+        let texture_pipelines = pipeline::TexturePipelines::new(&ctx, &target, &layouts)?;
+        let shadow_pipeline = pipeline::ShadowPipeline::new(&ctx, &layouts)?;
 
-        let light_pipeline =
-            pipeline::LightPipeline::new(&ctx, &target, &camera_layout, &light_layout)?;
+        let light_pipeline = pipeline::LightPipeline::new(&ctx, &target, &layouts)?;
 
         let model_resource_storage = ResourceStorage::new();
 
         Ok(Self {
             ctx,
             target,
+            layouts,
             depth_texture,
             shadow_binding,
             shadow_pipeline,
             shadow_depth_texture,
-            phong_layout,
             camera_binding,
             light_binding,
-            texture_layout,
             texture_pipelines,
             light_pipeline,
             model_resource_storage,
@@ -592,8 +574,7 @@ impl RenderState {
     ) -> MaterialBindingIndex {
         self.model_resource_storage.upload_material(
             &self.ctx,
-            &self.phong_layout,
-            &self.texture_layout,
+            &self.layouts,
             phong,
             color,
             normal,

@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use crate::render::{GpuContext, TargetContext};
+use crate::render::{GpuContext, TargetContext, resource::PhongLayouts};
 
 use super::{raw, resource};
 
@@ -20,48 +20,15 @@ pub struct TexturePipelines {
 pub struct ShadowPipeline(wgpu::RenderPipeline);
 
 impl TexturePipelines {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         ctx: &GpuContext,
         target: &TargetContext,
-        texture_layout: &resource::TextureBindGroupLayout,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
-        shadow_layouts: &resource::ShadowLayouts,
-        phong_layout: &resource::PhongBindGroupLayout,
+        layouts: &PhongLayouts,
     ) -> anyhow::Result<Self> {
-        let flat = FlatScenePipeline::new(
-            ctx,
-            target,
-            camera_layout,
-            light_layout,
-            shadow_layouts,
-            phong_layout,
-        )?;
-        let color = ColorScenePipeline::new(
-            ctx,
-            target,
-            texture_layout,
-            camera_layout,
-            light_layout,
-            phong_layout,
-        )?;
-        let normal = NormalScenePipeline::new(
-            ctx,
-            target,
-            texture_layout,
-            camera_layout,
-            light_layout,
-            phong_layout,
-        )?;
-        let color_normal = ColorNormalScenePipeline::new(
-            ctx,
-            target,
-            texture_layout,
-            camera_layout,
-            light_layout,
-            phong_layout,
-        )?;
+        let flat = FlatScenePipeline::new(ctx, target, layouts)?;
+        let color = ColorScenePipeline::new(ctx, target, layouts)?;
+        let normal = NormalScenePipeline::new(ctx, target, layouts)?;
+        let color_normal = ColorNormalScenePipeline::new(ctx, target, layouts)?;
 
         Ok(Self {
             flat,
@@ -100,20 +67,17 @@ impl FlatScenePipeline {
     pub fn new(
         ctx: &GpuContext,
         target: &TargetContext,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
-        shadow_layouts: &resource::ShadowLayouts,
-        phong_layout: &resource::PhongBindGroupLayout,
+        layouts: &PhongLayouts,
     ) -> anyhow::Result<Self> {
         let layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("FlatPipelineLayout"),
                 bind_group_layouts: &[
-                    camera_layout,
-                    light_layout,
-                    phong_layout,
-                    &shadow_layouts.texture,
+                    &layouts.camera,
+                    &layouts.light,
+                    &layouts.phong,
+                    &layouts.shadow_texture,
                 ],
                 push_constant_ranges: &[],
             });
@@ -151,16 +115,18 @@ impl ColorScenePipeline {
     pub fn new(
         ctx: &GpuContext,
         target: &TargetContext,
-        texture_layout: &resource::TextureBindGroupLayout,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
-        phong_layout: &resource::PhongBindGroupLayout,
+        layouts: &PhongLayouts,
     ) -> anyhow::Result<Self> {
         let layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("ColorPipelineLayout"),
-                bind_group_layouts: &[camera_layout, light_layout, phong_layout, texture_layout],
+                bind_group_layouts: &[
+                    &layouts.camera,
+                    &layouts.light,
+                    &layouts.phong,
+                    &layouts.texture,
+                ],
                 push_constant_ranges: &[],
             });
         let shader = wgpu::ShaderModuleDescriptor {
@@ -189,16 +155,18 @@ impl NormalScenePipeline {
     pub fn new(
         ctx: &GpuContext,
         target: &TargetContext,
-        texture_layout: &resource::TextureBindGroupLayout,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
-        phong_layout: &resource::PhongBindGroupLayout,
+        layouts: &PhongLayouts,
     ) -> anyhow::Result<Self> {
         let layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("NormalPipelineLayout"),
-                bind_group_layouts: &[camera_layout, light_layout, phong_layout, texture_layout],
+                bind_group_layouts: &[
+                    &layouts.camera,
+                    &layouts.light,
+                    &layouts.phong,
+                    &layouts.texture,
+                ],
                 push_constant_ranges: &[],
             });
         let shader = wgpu::ShaderModuleDescriptor {
@@ -227,21 +195,18 @@ impl ColorNormalScenePipeline {
     pub fn new(
         ctx: &GpuContext,
         target: &TargetContext,
-        texture_layout: &resource::TextureBindGroupLayout,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
-        phong_layout: &resource::PhongBindGroupLayout,
+        layouts: &PhongLayouts,
     ) -> anyhow::Result<Self> {
         let layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("ColorNormalPipelineLayout"),
                 bind_group_layouts: &[
-                    camera_layout,
-                    light_layout,
-                    phong_layout,
-                    texture_layout, // color texture
-                    texture_layout, // normal texture
+                    &layouts.camera,
+                    &layouts.light,
+                    &layouts.phong,
+                    &layouts.texture, // color texture
+                    &layouts.texture, // normal texture
                 ],
                 push_constant_ranges: &[],
             });
@@ -271,14 +236,13 @@ impl LightPipeline {
     pub fn new(
         ctx: &GpuContext,
         target: &TargetContext,
-        camera_layout: &resource::CameraBindGroupLayout,
-        light_layout: &resource::LightBindGroupLayout,
+        layouts: &PhongLayouts,
     ) -> anyhow::Result<Self> {
         let layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
-                bind_group_layouts: &[camera_layout, light_layout],
+                bind_group_layouts: &[&layouts.camera, &layouts.light],
                 push_constant_ranges: &[],
             });
         let shader = wgpu::ShaderModuleDescriptor {
@@ -304,16 +268,12 @@ impl ShadowPipeline {
         "/src/shaders/shadow.wgsl"
     ));
 
-    pub fn new(
-        ctx: &GpuContext,
-        shadow_layouts: &resource::ShadowLayouts,
-        light_layout: &resource::LightBindGroupLayout,
-    ) -> anyhow::Result<Self> {
+    pub fn new(ctx: &GpuContext, layouts: &PhongLayouts) -> anyhow::Result<Self> {
         let layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("ShadowPipelineLayout"),
-                bind_group_layouts: &[&shadow_layouts.transform, light_layout],
+                bind_group_layouts: &[&layouts.shadow_transform, &layouts.light],
                 push_constant_ranges: &[],
             });
         let shader = wgpu::ShaderModuleDescriptor {
