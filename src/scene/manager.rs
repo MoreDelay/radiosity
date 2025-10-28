@@ -16,7 +16,7 @@ pub struct IndexInfo {
 }
 
 #[derive(Debug)]
-pub struct PrimitiveDataNew {
+pub struct PrimitiveData {
     pub position: render::PositionBufferIndex,
     pub tex_coord: render::TexCoordBufferIndex,
     pub normal: render::NormalBufferIndex,
@@ -26,20 +26,20 @@ pub struct PrimitiveDataNew {
 
 #[derive(Debug)]
 pub struct PrimitiveInfo {
-    pub data: PrimitiveDataNew,
+    pub data: PrimitiveData,
     pub indices: IndexInfo,
     pub material: render::MaterialBindingIndex,
 }
 
 #[derive(Debug)]
-pub struct MeshInfoNew {
+pub struct MeshInfo {
     pub primitives: Vec<PrimitiveInfo>,
     pub instance: render::InstanceBufferIndex,
 }
 
 pub struct DrawManager {
     render_state: Rc<RefCell<render::RenderState>>,
-    meshes: HashMap<model::MeshNewIndex, MeshInfoNew>,
+    meshes: HashMap<model::MeshIndex, MeshInfo>,
 
     // translations between model asset and render resource handles
     map_index: HashMap<model::IndexBufferIndex, render::IndexBufferIndex>,
@@ -51,7 +51,7 @@ pub struct DrawManager {
         (model::NormalBufferIndex, model::TangentBufferIndex),
         render::BiTangentBufferIndex,
     >,
-    map_material: HashMap<model::MaterialNewIndex, render::MaterialBindingIndex>,
+    map_material: HashMap<model::MaterialIndex, render::MaterialBindingIndex>,
 }
 
 impl DrawManager {
@@ -72,7 +72,7 @@ impl DrawManager {
     pub fn add_mesh(
         &mut self,
         storage: &model::Storage,
-        mesh_index: model::MeshNewIndex,
+        mesh_index: model::MeshIndex,
         instance: render::InstanceBufferIndex,
         label: Option<&str>,
     ) {
@@ -84,7 +84,7 @@ impl DrawManager {
             .primitives
             .iter()
             .map(|p| {
-                let model::PrimitiveNew {
+                let model::Primitive {
                     data,
                     indices,
                     material,
@@ -159,7 +159,7 @@ impl DrawManager {
                     }
                 };
 
-                let data = PrimitiveDataNew {
+                let data = PrimitiveData {
                     position,
                     tex_coord,
                     normal,
@@ -222,7 +222,7 @@ impl DrawManager {
             })
             .collect();
 
-        let mesh_info = MeshInfoNew {
+        let mesh_info = MeshInfo {
             primitives,
             instance,
         };
@@ -240,7 +240,7 @@ impl DrawManager {
                     let IndexInfo { index, ref slice } = prim.indices;
                     let slice = slice.clone();
 
-                    let PrimitiveDataNew {
+                    let PrimitiveData {
                         position,
                         tex_coord,
                         normal,

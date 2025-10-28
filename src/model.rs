@@ -93,13 +93,13 @@ pub enum MaterialType {
     // TODO: Add Metallic Roughness type
 }
 
-pub struct MaterialNew {
+pub struct Material {
     pub data: MaterialType,
     pub normal: Option<TextureIndex>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct MaterialNewIndex(u32);
+pub struct MaterialIndex(u32);
 
 #[expect(unused)]
 #[derive(Debug, Clone, Default)]
@@ -171,19 +171,19 @@ pub struct PrimitiveData {
 }
 
 #[derive(Debug)]
-pub struct PrimitiveNew {
+pub struct Primitive {
     pub data: PrimitiveData,
     pub indices: IndexBufferView,
-    pub material: MaterialNewIndex,
+    pub material: MaterialIndex,
 }
 
 #[derive(Debug)]
-pub struct MeshNew {
-    pub primitives: Vec<PrimitiveNew>,
+pub struct Mesh {
+    pub primitives: Vec<Primitive>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct MeshNewIndex(u32);
+pub struct MeshIndex(u32);
 
 pub struct Storage {
     index_buffers: Vec<IndexBuffer>,
@@ -191,12 +191,12 @@ pub struct Storage {
     tex_coord_buffers: Vec<TexCoordBuffer>,
     normal_buffers: Vec<NormalBuffer>,
     tangent_buffers: Vec<TangentBuffer>,
-    materials: Vec<MaterialNew>,
+    materials: Vec<Material>,
     textures: Vec<Texture>,
     images: Vec<Image>,
-    meshes: Vec<MeshNew>,
+    meshes: Vec<Mesh>,
 
-    obj_default_material: Option<MaterialNewIndex>,
+    obj_default_material: Option<MaterialIndex>,
 }
 
 impl Storage {
@@ -235,7 +235,7 @@ impl Storage {
         &self.tangent_buffers[index.0 as usize]
     }
 
-    pub fn material(&self, index: MaterialNewIndex) -> &MaterialNew {
+    pub fn material(&self, index: MaterialIndex) -> &Material {
         &self.materials[index.0 as usize]
     }
 
@@ -247,7 +247,7 @@ impl Storage {
         &self.images[index.0 as usize]
     }
 
-    pub fn mesh(&self, index: MeshNewIndex) -> &MeshNew {
+    pub fn mesh(&self, index: MeshIndex) -> &Mesh {
         &self.meshes[index.0 as usize]
     }
 }
@@ -257,7 +257,7 @@ impl Storage {
         &mut self,
         obj: parser::ParsedObj,
         mtls: impl IntoIterator<Item = parser::ParsedMtl>,
-    ) -> MeshNewIndex {
+    ) -> MeshIndex {
         let material_indices = self.store_mtls(mtls);
         let objects = CompactedObject::separate_objects(obj);
 
@@ -310,7 +310,7 @@ impl Storage {
                             self.use_obj_default_material()
                         };
 
-                        PrimitiveNew {
+                        Primitive {
                             data,
                             indices,
                             material,
@@ -320,14 +320,14 @@ impl Storage {
             })
             .collect();
 
-        let mesh = MeshNew { primitives };
+        let mesh = Mesh { primitives };
         self.store_mesh(mesh)
     }
 
     fn store_mtls(
         &mut self,
         mtls: impl IntoIterator<Item = parser::ParsedMtl>,
-    ) -> Vec<MaterialNewIndex> {
+    ) -> Vec<MaterialIndex> {
         let mut texture_map: HashMap<PathBuf, TextureIndex> = HashMap::new();
 
         let mut to_index = |inner: &mut Self, path: PathBuf| {
@@ -394,7 +394,7 @@ impl Storage {
                     specular_exponent,
                     diffuse_map,
                 };
-                let mtl = MaterialNew {
+                let mtl = Material {
                     data: MaterialType::BlinnPhong(mtl),
                     normal: normal_map,
                 };
@@ -404,14 +404,14 @@ impl Storage {
             .collect()
     }
 
-    fn use_obj_default_material(&mut self) -> MaterialNewIndex {
+    fn use_obj_default_material(&mut self) -> MaterialIndex {
         if let Some(index) = self.obj_default_material {
             return index;
         }
 
         let data = BlinnPhong::default();
         let data = MaterialType::BlinnPhong(data);
-        let default = MaterialNew { data, normal: None };
+        let default = Material { data, normal: None };
         let index = self.store_material(default);
         self.obj_default_material = Some(index);
         index
@@ -447,8 +447,8 @@ impl Storage {
         index
     }
 
-    fn store_material(&mut self, material: MaterialNew) -> MaterialNewIndex {
-        let index = MaterialNewIndex(self.materials.len() as u32);
+    fn store_material(&mut self, material: Material) -> MaterialIndex {
+        let index = MaterialIndex(self.materials.len() as u32);
         self.materials.push(material);
         index
     }
@@ -465,8 +465,8 @@ impl Storage {
         index
     }
 
-    fn store_mesh(&mut self, mesh: MeshNew) -> MeshNewIndex {
-        let index = MeshNewIndex(self.meshes.len() as u32);
+    fn store_mesh(&mut self, mesh: Mesh) -> MeshIndex {
+        let index = MeshIndex(self.meshes.len() as u32);
         self.meshes.push(mesh);
         index
     }

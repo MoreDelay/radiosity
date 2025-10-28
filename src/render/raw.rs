@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use crate::render::GpuContext;
+
 use super::resource::Texture;
 
 /// Data format used to transfer camera information to the GPU.
@@ -92,19 +94,14 @@ pub struct TextureRaw {
 }
 
 impl TextureRaw {
-    pub fn create_texture(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        label: Option<&str>,
-    ) -> Texture {
+    pub fn create_texture(&self, ctx: &GpuContext, label: Option<&str>) -> Texture {
         let &TextureRaw {
             ref data,
             format,
             size,
         } = self;
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
             mip_level_count: 1,
@@ -117,7 +114,7 @@ impl TextureRaw {
         });
 
         // load image (on CPU) into texture (on GPU) by issuing command over queue
-        queue.write_texture(
+        ctx.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
@@ -134,7 +131,7 @@ impl TextureRaw {
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = ctx.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,

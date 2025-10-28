@@ -34,20 +34,95 @@ pub enum PipelineMode {
     ColorNormal,
 }
 
-pub struct RenderStateInit {
-    surface: wgpu::Surface<'static>,
+pub struct GpuContext {
     device: wgpu::Device,
     queue: wgpu::Queue,
+}
+
+pub struct TargetContext {
+    surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
 }
 
+impl TargetContext {
+    pub fn get_frame_dim(&self) -> camera::FrameDim {
+        (self.config.width, self.config.height).into()
+    }
+}
+
+pub async fn create_render_instance(window: Arc<Window>) -> (GpuContext, TargetContext) {
+    let size = window.inner_size();
+
+    // handle to create adapters and surfaces
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
+
+    // part of the window we can draw to
+    let surface = instance.create_surface(window.clone()).unwrap();
+
+    // handle to graphics card
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false, // always run on hardware or fail
+        })
+        .await
+        .expect("no hardware available to render");
+
+    let required_limits = wgpu::Limits {
+        max_bind_groups: 5,
+        ..Default::default()
+    };
+
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor {
+            // list available features with adapter.features() or device.features()
+            required_features: wgpu::Features::empty(),
+            required_limits,
+            label: None,
+            memory_hints: Default::default(),
+            trace: wgpu::Trace::Off,
+        })
+        .await
+        .unwrap();
+
+    let surface_caps = surface.get_capabilities(&adapter);
+    let surface_format = surface_caps
+        .formats
+        .iter()
+        // assume srgb surface here
+        .find(|f| f.is_srgb())
+        .copied()
+        .unwrap_or(surface_caps.formats[0]);
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT, // render surface to screen
+        format: surface_format,                        // data format
+        width: size.width,
+        height: size.height,
+        // sync strategy with display, always has at least Fifo
+        present_mode: surface_caps.present_modes[0],
+        alpha_mode: surface_caps.alpha_modes[0],
+        view_formats: vec![], // texture formats made available to create
+        desired_maximum_frame_latency: 2,
+    };
+
+    (
+        GpuContext { device, queue },
+        TargetContext {
+            surface,
+            config,
+            size,
+        },
+    )
+}
+
 pub struct RenderState {
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
+    ctx: GpuContext,
+    target: TargetContext,
     phong_layout: resource::PhongBindGroupLayout,
     texture_layout: resource::TextureBindGroupLayout,
     texture_pipelines: pipeline::TexturePipelines,
@@ -62,146 +137,59 @@ pub struct RenderState {
     model_resource_storage: ResourceStorage,
 }
 
-impl RenderStateInit {
-    pub async fn new(window: Arc<Window>) -> Self {
-        let size = window.inner_size();
-
-        // handle to create adapters and surfaces
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
-
-        // part of the window we can draw to
-        let surface = instance.create_surface(window.clone()).unwrap();
-
-        // handle to graphics card
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false, // always run on hardware or fail
-            })
-            .await
-            .expect("no hardware available to render");
-
-        let required_limits = wgpu::Limits {
-            max_bind_groups: 5,
-            ..Default::default()
-        };
-
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                // list available features with adapter.features() or device.features()
-                required_features: wgpu::Features::empty(),
-                required_limits,
-                label: None,
-                memory_hints: Default::default(),
-                trace: wgpu::Trace::Off,
-            })
-            .await
-            .unwrap();
-
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            // assume srgb surface here
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT, // render surface to screen
-            format: surface_format,                        // data format
-            width: size.width,
-            height: size.height,
-            // sync strategy with display, always has at least Fifo
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![], // texture formats made available to create
-            desired_maximum_frame_latency: 2,
-        };
-
-        Self {
-            surface,
-            device,
-            queue,
-            config,
-            size,
-        }
-    }
-
-    pub fn get_frame_dim(&self) -> camera::FrameDim {
-        (self.config.width, self.config.height).into()
-    }
-}
-
 impl RenderState {
-    #[expect(clippy::too_many_arguments)]
     pub fn create(
-        init: RenderStateInit,
+        ctx: GpuContext,
+        target: TargetContext,
         camera: &CameraRaw,
         light: &LightRaw,
     ) -> anyhow::Result<Self> {
-        let RenderStateInit {
-            surface,
-            device,
-            queue,
-            config,
-            size,
-        } = init;
-
         let depth_dims = TextureDims {
-            width: NonZeroU32::new(config.width.max(1)).unwrap(),
-            height: NonZeroU32::new(config.height.max(1)).unwrap(),
+            width: NonZeroU32::new(target.config.width.max(1)).unwrap(),
+            height: NonZeroU32::new(target.config.height.max(1)).unwrap(),
         };
-        let depth_texture = resource::DepthTexture::new(&device, depth_dims, Some("depth_texture"));
+        let depth_texture = resource::DepthTexture::new(&ctx, depth_dims, Some("depth_texture"));
 
-        let texture_layout = resource::TextureBindGroupLayout::new(&device);
+        let texture_layout = resource::TextureBindGroupLayout::new(&ctx);
 
-        let camera_layout = resource::CameraBindGroupLayout::new(&device);
+        let camera_layout = resource::CameraBindGroupLayout::new(&ctx);
         let camera_binding =
-            resource::CameraBinding::new(&device, &camera_layout, camera, Some("Single"));
+            resource::CameraBinding::new(&ctx, &camera_layout, camera, Some("Single"));
 
-        let light_layout = resource::LightBindGroupLayout::new(&device);
-        let light_binding =
-            resource::LightBinding::new(&device, &light_layout, light, Some("Single"));
+        let light_layout = resource::LightBindGroupLayout::new(&ctx);
+        let light_binding = resource::LightBinding::new(&ctx, &light_layout, light, Some("Single"));
 
-        let phong_layout = resource::PhongBindGroupLayout::new(&device);
+        let phong_layout = resource::PhongBindGroupLayout::new(&ctx);
 
         let dims = TextureDims {
             width: NonZeroU32::new(1024).unwrap(),
             height: NonZeroU32::new(1024).unwrap(),
         };
-        let shadow_layout = resource::ShadowLayouts::new(&device);
+        let shadow_layout = resource::ShadowLayouts::new(&ctx);
         let shadow_binding =
-            resource::ShadowBindings::new(&device, &shadow_layout, dims, light, Some("Shadow"));
+            resource::ShadowBindings::new(&ctx, &shadow_layout, dims, light, Some("Shadow"));
         let shadow_depth_texture =
-            resource::DepthTexture::new(&device, dims, Some("shadow_depth_texture"));
+            resource::DepthTexture::new(&ctx, dims, Some("shadow_depth_texture"));
 
         let texture_pipelines = pipeline::TexturePipelines::new(
-            &device,
-            config.format,
+            &ctx,
+            &target,
             &texture_layout,
             &camera_layout,
             &light_layout,
             &shadow_layout,
             &phong_layout,
         )?;
-        let shadow_pipeline =
-            pipeline::ShadowPipeline::new(&device, &shadow_layout, &light_layout)?;
+        let shadow_pipeline = pipeline::ShadowPipeline::new(&ctx, &shadow_layout, &light_layout)?;
 
         let light_pipeline =
-            pipeline::LightPipeline::new(&device, config.format, &camera_layout, &light_layout)?;
+            pipeline::LightPipeline::new(&ctx, &target, &camera_layout, &light_layout)?;
 
         let model_resource_storage = ResourceStorage::new();
 
         Ok(Self {
-            surface,
-            device,
-            queue,
-            config,
-            size,
+            ctx,
+            target,
             depth_texture,
             shadow_binding,
             shadow_pipeline,
@@ -217,41 +205,44 @@ impl RenderState {
     }
 
     pub fn resize(&mut self, new_size: Option<winit::dpi::PhysicalSize<u32>>) {
-        let new_size = new_size.unwrap_or(self.size);
+        let new_size = new_size.unwrap_or(self.target.size);
         if new_size.width > 0 && new_size.height > 0 {
-            self.size = new_size;
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
+            self.target.size = new_size;
+            self.target.config.width = new_size.width;
+            self.target.config.height = new_size.height;
+            self.target
+                .surface
+                .configure(&self.ctx.device, &self.target.config);
             // resize depth texture
             let dims = TextureDims {
                 width: NonZeroU32::new(new_size.width).unwrap(),
                 height: NonZeroU32::new(new_size.height).unwrap(),
             };
             self.depth_texture =
-                resource::DepthTexture::new(&self.device, dims, Some("depth_texture"));
+                resource::DepthTexture::new(&self.ctx, dims, Some("depth_texture"));
         }
     }
 
     pub fn update_light(&self, data: &LightRaw) {
-        self.light_binding.update(&self.queue, data);
-        self.shadow_binding.update(&self.queue, data);
+        self.light_binding.update(&self.ctx, data);
+        self.shadow_binding.update(&self.ctx, data);
     }
 
     pub fn update_camera(&self, data: &CameraRaw) {
-        self.camera_binding.update(&self.queue, data);
+        self.camera_binding.update(&self.ctx, data);
     }
 
     pub fn draw(&mut self, draw_world: resource::DrawWorld) -> Result<(), wgpu::SurfaceError> {
         let sorted_draws = draw_world.sort(&self.model_resource_storage);
 
         // blocks until surface provides render target
-        let output = self.surface.get_current_texture()?;
+        let output = self.target.surface.get_current_texture()?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         // command buffer for GPU
         let mut encoder = self
+            .ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("RenderCommandEncoder"),
@@ -532,7 +523,7 @@ impl RenderState {
         // render pass recording ends when dropped
         drop(render_pass);
 
-        self.queue.submit(std::iter::once(encoder.finish()));
+        self.ctx.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())
@@ -544,7 +535,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> resource::IndexBufferIndex {
         self.model_resource_storage
-            .upload_index_buffer(&self.device, data, label)
+            .upload_index_buffer(&self.ctx, data, label)
     }
 
     pub fn upload_position_buffer(
@@ -553,7 +544,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> resource::PositionBufferIndex {
         self.model_resource_storage
-            .upload_position_buffer(&self.device, data, label)
+            .upload_position_buffer(&self.ctx, data, label)
     }
 
     pub fn upload_tex_coord_buffer(
@@ -562,7 +553,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> resource::TexCoordBufferIndex {
         self.model_resource_storage
-            .upload_tex_coord_buffer(&self.device, data, label)
+            .upload_tex_coord_buffer(&self.ctx, data, label)
     }
 
     pub fn upload_normal_buffer(
@@ -571,7 +562,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> resource::NormalBufferIndex {
         self.model_resource_storage
-            .upload_normal_buffer(&self.device, data, label)
+            .upload_normal_buffer(&self.ctx, data, label)
     }
 
     pub fn upload_tangent_buffer(
@@ -580,7 +571,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> resource::TangentBufferIndex {
         self.model_resource_storage
-            .upload_tangent_buffer(&self.device, data, label)
+            .upload_tangent_buffer(&self.ctx, data, label)
     }
 
     pub fn upload_bi_tangent_buffer(
@@ -589,7 +580,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> resource::BiTangentBufferIndex {
         self.model_resource_storage
-            .upload_bi_tangent_buffer(&self.device, data, label)
+            .upload_bi_tangent_buffer(&self.ctx, data, label)
     }
 
     pub fn add_material(
@@ -600,8 +591,7 @@ impl RenderState {
         label: Option<&str>,
     ) -> MaterialBindingIndex {
         self.model_resource_storage.upload_material(
-            &self.device,
-            &self.queue,
+            &self.ctx,
             &self.phong_layout,
             &self.texture_layout,
             phong,
@@ -626,6 +616,6 @@ impl RenderState {
         label: Option<&str>,
     ) -> InstanceBufferIndex {
         self.model_resource_storage
-            .upload_instance(&self.device, &instances, label)
+            .upload_instance(&self.ctx, &instances, label)
     }
 }

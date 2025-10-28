@@ -24,14 +24,14 @@ pub struct SceneState {
 
 impl SceneState {
     pub fn new(window: Arc<Window>) -> Self {
-        let render_init = pollster::block_on(render::RenderStateInit::new(window));
+        let (ctx, target) = pollster::block_on(render::create_render_instance(window));
 
         let pos = 10f32 * na::Vector3::new(0.0, 4.0, 7.0);
-        let target = na::Vector3::new(0.0, 0.0, 2.0);
+        let focus = na::Vector3::new(0.0, 0.0, 2.0);
         let distance = 10.;
-        let frame = render_init.get_frame_dim();
-        let target_camera = camera::TargetCamera::new(pos, target, distance, frame);
-        let direction = na::Unit::new_normalize(target - pos);
+        let frame = target.get_frame_dim();
+        let target_camera = camera::TargetCamera::new(pos, focus, distance, frame);
+        let direction = na::Unit::new_normalize(focus - pos);
         let first_person_camera = camera::FirstPersonCamera::new(pos, direction, frame);
 
         // let light_pos = [2., 2., 2.].into();
@@ -61,7 +61,7 @@ impl SceneState {
         dbg!(storage.borrow().mesh(index_new));
 
         let render_state = Rc::new(RefCell::new(
-            render::RenderState::create(render_init, &target_camera.to_raw(), &light.to_raw())
+            render::RenderState::create(ctx, target, &target_camera.to_raw(), &light.to_raw())
                 .unwrap(),
         ));
 
