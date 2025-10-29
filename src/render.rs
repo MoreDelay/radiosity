@@ -580,21 +580,12 @@ impl RenderState {
         )
     }
 
-    // pub fn add_mesh_buffer(
-    //     &mut self,
-    //     mesh: &model::MeshCombined,
-    //     label: Option<&str>,
-    // ) -> MeshBufferIndex {
-    //     self.model_resource_storage
-    //         .upload_mesh(&self.device, mesh, label)
-    // }
-
     pub fn add_instance_buffer(
         &mut self,
         instances: &[model::Instance],
         label: Option<&str>,
     ) -> InstanceBufferIndex {
         self.model_resource_storage
-            .upload_instance(&self.ctx, &instances, label)
+            .upload_instance(&self.ctx, instances, label)
     }
 }

@@ -37,16 +37,6 @@ impl SimpleMtlManager {
         }
     }
 
-    #[expect(unused)]
-    pub fn len(&self) -> usize {
-        self.materials.len()
-    }
-
-    #[expect(unused)]
-    pub fn get(&self, index: usize) -> Option<&mtl::ParsedMtl> {
-        self.materials.get(index)
-    }
-
     pub fn extract_list(self) -> Vec<mtl::ParsedMtl> {
         self.materials
     }

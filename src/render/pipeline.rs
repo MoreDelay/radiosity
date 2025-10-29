@@ -153,9 +153,10 @@ impl PhongPipeline {
 
         let vertex = PhongVertexRequirements {
             position: VertexSlot::Filled,
-            tex_coord: (color_map || normal_map)
-                .then_some(VertexSlot::Filled)
-                .unwrap_or(VertexSlot::Empty),
+            tex_coord: match color_map || normal_map {
+                true => VertexSlot::Filled,
+                false => VertexSlot::Empty,
+            },
             normal: VertexSlot::Filled,
             tangent: VertexSlot::Filled,
             bi_tangent: VertexSlot::Filled,
@@ -181,7 +182,7 @@ impl PhongPipeline {
             constants.push(("NORMAL_MAP_SLOT", slot as f64));
         }
 
-        let shader = wesl::Wesl::new(&super::SHADER_ROOT)
+        let shader = wesl::Wesl::new(super::SHADER_ROOT)
             .set_features(features.clone())
             .add_constants(constants.clone())
             .compile(&Self::ENTRY.parse().unwrap())
@@ -271,7 +272,7 @@ impl Deref for PhongPipeline {
 #[derive(Debug)]
 pub struct PhongPipelines {
     render: [PhongPipeline; Self::RENDER_VARIANTS as usize + 1],
-    light: LightPipeline,
+    _light: LightPipeline,
     shadow: ShadowPipeline,
 }
 
@@ -284,7 +285,6 @@ impl PhongPipelines {
 
     pub fn new(ctx: &GpuContext, target: &TargetContext, layouts: &PhongLayouts) -> Self {
         let render = (0..=Self::RENDER_VARIANTS)
-            .into_iter()
             .map(|index| PhongPipeline::new(ctx, target, layouts, Self::index_to_caps(index)))
             .collect::<Vec<_>>();
         let render = render.try_into().unwrap();
@@ -292,7 +292,7 @@ impl PhongPipelines {
         let shadow = ShadowPipeline::new(ctx, layouts);
         Self {
             render,
-            light,
+            _light: light,
             shadow,
         }
     }
@@ -304,7 +304,7 @@ impl PhongPipelines {
 
     #[expect(unused)]
     pub fn get_light(&self) -> &LightPipeline {
-        &self.light
+        &self._light
     }
 
     pub fn get_shadow(&self) -> &ShadowPipeline {

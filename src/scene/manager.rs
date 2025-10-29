@@ -194,14 +194,12 @@ impl DrawManager {
                         let model::MaterialType::BlinnPhong(phong_params) = &data.data;
                         let diffuse_map = phong_params.diffuse_map.map(|i| {
                             let texture = storage.texture(i);
-                            let image = storage.image(texture.image);
-                            image
+                            storage.image(texture.image)
                         });
 
                         let normal_texture = data.normal.map(|i| {
                             let texture = storage.texture(i);
-                            let image = storage.image(texture.image);
-                            image
+                            storage.image(texture.image)
                         });
 
                         let index = render_state.add_material(

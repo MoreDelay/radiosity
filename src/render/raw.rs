@@ -141,7 +141,7 @@ impl TextureRaw {
             ..Default::default()
         });
         Texture {
-            texture,
+            _texture: texture,
             view,
             sampler,
         }

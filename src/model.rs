@@ -113,8 +113,7 @@ pub struct Sampler {
 
 #[derive(Debug, Clone)]
 pub struct Texture {
-    #[expect(unused)]
-    pub sampler: Sampler,
+    pub _sampler: Sampler,
     pub image: ImageIndex,
 }
 
@@ -275,7 +274,7 @@ impl Storage {
                 let tangent_buffer = MeshCombined::compute_tangents(&normal_buffer);
 
                 let MeshCombined {
-                    name: _,
+                    _name: _,
                     vertex_buffer,
                     tex_coord_buffer,
                     materials,
@@ -343,7 +342,7 @@ impl Storage {
             let image = Image::Path(path);
             let index = inner.store_image(image);
             let texture = Texture {
-                sampler: Sampler::default(),
+                _sampler: Sampler::default(),
                 image: index,
             };
             let index = inner.store_texture(texture);
@@ -511,8 +510,7 @@ pub struct Instance {
 }
 
 pub struct MeshCombined {
-    #[expect(unused)]
-    pub name: Option<String>,
+    pub _name: Option<String>,
     pub vertex_buffer: VertexBuffer,
     pub tex_coord_buffer: Option<TexCoordBuffer>,
     pub materials: Vec<(Option<u32>, obj::FaceRange)>,
@@ -540,8 +538,7 @@ impl MeshCombined {
 struct CompactedObject {
     pub name: Option<String>,
     pub faces: Vec<obj::F>,
-    #[expect(unused)]
-    pub groups: Vec<(String, obj::FaceRange)>,
+    pub _groups: Vec<(String, obj::FaceRange)>,
     pub mtls: Vec<(Option<u32>, obj::FaceRange)>,
     pub geo_vertices: Vec<obj::V>,
     pub tex_vertices: Vec<obj::Vt>,
@@ -726,7 +723,7 @@ impl CompactedObject {
         Some(CompactedObject {
             name,
             faces,
-            groups,
+            _groups: groups,
             mtls,
             geo_vertices,
             tex_vertices,
@@ -740,7 +737,7 @@ impl MeshCombined {
         let CompactedObject {
             name,
             faces,
-            groups: _,
+            _groups: _,
             mut mtls,
             geo_vertices: old_geo,
             tex_vertices: old_tex,
@@ -882,7 +879,7 @@ impl MeshCombined {
         let materials = if has_tex { mtls } else { Vec::new() };
 
         Some(Self {
-            name,
+            _name: name,
             vertex_buffer: new_vertices,
             tex_coord_buffer: new_tex,
             materials,
@@ -926,7 +923,7 @@ impl MeshCombined {
 }
 
 impl Instance {
-    pub fn to_raw(&self) -> render::InstanceRaw {
+    pub fn to_raw(self) -> render::InstanceRaw {
         let model = na::Translation::from(self.position) * self.rotation;
         let model = model.to_matrix().into();
         let normal = *self.rotation.to_rotation_matrix().matrix();

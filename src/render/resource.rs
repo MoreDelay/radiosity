@@ -181,8 +181,7 @@ impl PhongLayouts {
 }
 
 pub struct Texture {
-    #[expect(unused)]
-    pub texture: wgpu::Texture,
+    pub _texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
 }
@@ -227,7 +226,7 @@ impl DepthTexture {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let texture = Texture {
-            texture,
+            _texture: texture,
             view,
             sampler,
         };
@@ -245,8 +244,7 @@ impl Deref for DepthTexture {
 
 pub struct ColorBinding {
     bind_group: wgpu::BindGroup,
-    #[expect(unused)]
-    texture: Texture,
+    _texture: Texture,
 }
 
 impl Deref for ColorBinding {
@@ -259,8 +257,7 @@ impl Deref for ColorBinding {
 
 pub struct NormalBinding {
     bind_group: wgpu::BindGroup,
-    #[expect(unused)]
-    texture: Texture,
+    _texture: Texture,
 }
 
 impl Deref for NormalBinding {
@@ -278,7 +275,6 @@ pub struct MaterialBindings {
 }
 
 impl MaterialBindings {
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         ctx: &GpuContext,
         layouts: &PhongLayouts,
@@ -307,7 +303,7 @@ impl MaterialBindings {
             });
             ColorBinding {
                 bind_group,
-                texture,
+                _texture: texture,
             }
         });
 
@@ -331,7 +327,7 @@ impl MaterialBindings {
             });
             NormalBinding {
                 bind_group,
-                texture,
+                _texture: texture,
             }
         });
 
@@ -388,8 +384,7 @@ impl CameraBinding {
 
 pub struct PhongBinding {
     pub bind_group: wgpu::BindGroup,
-    #[expect(unused)]
-    buffer: wgpu::Buffer,
+    _buffer: wgpu::Buffer,
 }
 
 impl PhongBinding {
@@ -414,7 +409,10 @@ impl PhongBinding {
                 resource: buffer.as_entire_binding(),
             }],
         });
-        Self { bind_group, buffer }
+        Self {
+            bind_group,
+            _buffer: buffer,
+        }
     }
 }
 
@@ -529,13 +527,10 @@ impl Deref for ShadowTextureBindGroupLayout {
     }
 }
 pub struct ShadowBindings {
-    #[expect(unused)]
-    texture: wgpu::Texture,
-    #[expect(unused)]
-    sampler: wgpu::Sampler,
+    _texture: wgpu::Texture,
+    _sampler: wgpu::Sampler,
     view_buffers: [wgpu::Buffer; 6],
-    #[expect(unused)]
-    cube_view: wgpu::TextureView,
+    _cube_view: wgpu::TextureView,
 
     pub cube_bind: wgpu::BindGroup,
     pub transform_binds: [wgpu::BindGroup; 6],
@@ -679,10 +674,10 @@ impl ShadowBindings {
         ];
 
         Self {
-            texture,
-            sampler,
+            _texture: texture,
+            _sampler: sampler,
             cube_bind,
-            cube_view,
+            _cube_view: cube_view,
             view_buffers,
             transform_binds,
             cube_views: layer_views,
@@ -774,8 +769,7 @@ impl InstanceBuffer {
 
 pub(super) struct IndexBuffer {
     pub buffer: wgpu::Buffer,
-    #[expect(unused)]
-    pub count: u32,
+    pub _count: u32,
 }
 
 impl IndexBuffer {
@@ -788,14 +782,16 @@ impl IndexBuffer {
                 contents: data.as_bytes(),
                 usage: wgpu::BufferUsages::INDEX,
             });
-        Self { buffer, count }
+        Self {
+            buffer,
+            _count: count,
+        }
     }
 }
 
 pub(super) struct PositionBuffer {
     pub buffer: wgpu::Buffer,
-    #[expect(unused)]
-    pub count: u32,
+    pub _count: u32,
 }
 
 impl PositionBuffer {
@@ -812,14 +808,16 @@ impl PositionBuffer {
                 contents: data.as_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        Self { buffer, count }
+        Self {
+            buffer,
+            _count: count,
+        }
     }
 }
 
 pub(super) struct TexCoordsBuffer {
     pub buffer: wgpu::Buffer,
-    #[expect(unused)]
-    pub count: u32,
+    pub _count: u32,
 }
 
 impl TexCoordsBuffer {
@@ -836,14 +834,16 @@ impl TexCoordsBuffer {
                 contents: data.as_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        Self { buffer, count }
+        Self {
+            buffer,
+            _count: count,
+        }
     }
 }
 
 pub(super) struct NormalBuffer {
     pub buffer: wgpu::Buffer,
-    #[expect(unused)]
-    pub count: u32,
+    pub _count: u32,
 }
 
 impl NormalBuffer {
@@ -857,14 +857,16 @@ impl NormalBuffer {
                 contents: data.as_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        Self { buffer, count }
+        Self {
+            buffer,
+            _count: count,
+        }
     }
 }
 
 pub(super) struct TangentBuffer {
     pub buffer: wgpu::Buffer,
-    #[expect(unused)]
-    pub count: u32,
+    pub _count: u32,
 }
 
 impl TangentBuffer {
@@ -881,14 +883,16 @@ impl TangentBuffer {
                 contents: data.as_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        Self { buffer, count }
+        Self {
+            buffer,
+            _count: count,
+        }
     }
 }
 
 pub(super) struct BiTangentBuffer {
     pub buffer: wgpu::Buffer,
-    #[expect(unused)]
-    pub count: u32,
+    pub _count: u32,
 }
 
 impl BiTangentBuffer {
@@ -905,7 +909,10 @@ impl BiTangentBuffer {
                 contents: data.as_bytes(),
                 usage: wgpu::BufferUsages::VERTEX,
             });
-        Self { buffer, count }
+        Self {
+            buffer,
+            _count: count,
+        }
     }
 }
 
@@ -1074,7 +1081,6 @@ impl ResourceStorage {
         index
     }
 
-    #[expect(clippy::too_many_arguments)]
     pub fn upload_material(
         &mut self,
         ctx: &GpuContext,

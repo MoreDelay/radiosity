@@ -44,13 +44,13 @@ impl Light {
 }
 
 impl Light {
-    pub fn to_raw(&self) -> LightRaw {
+    pub fn to_raw(self) -> LightRaw {
         let Self {
             pos,
             color,
             max_dist,
             ..
-        } = *self;
+        } = self;
         LightRaw {
             position: pos.into(),
             max_dist,
