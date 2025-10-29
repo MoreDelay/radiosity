@@ -26,6 +26,8 @@ pub use resource::{
     TexCoordBufferIndex, //
 };
 
+const SHADER_ROOT: &str = "src/shaders";
+
 #[derive(Copy, Clone, Debug)]
 pub enum PipelineMode {
     Flat,
@@ -74,7 +76,7 @@ pub async fn create_render_instance(window: Arc<Window>) -> (GpuContext, TargetC
         .expect("no hardware available to render");
 
     let required_limits = wgpu::Limits {
-        max_bind_groups: 5,
+        max_bind_groups: 6,
         ..Default::default()
     };
 
@@ -150,8 +152,9 @@ impl RenderState {
         let depth_texture = resource::DepthTexture::new(&ctx, depth_dims, Some("depth_texture"));
 
         let layouts = resource::PhongLayouts::new(&ctx);
-        let camera_binding = resource::CameraBinding::new(&ctx, &layouts, camera, Some("Single"));
+        let _new_pipelines = pipeline::PhongPipelines::new(&ctx, &target, &layouts);
 
+        let camera_binding = resource::CameraBinding::new(&ctx, &layouts, camera, Some("Single"));
         let light_binding = resource::LightBinding::new(&ctx, &layouts, light, Some("Single"));
 
         let dims = TextureDims {
@@ -164,9 +167,9 @@ impl RenderState {
             resource::DepthTexture::new(&ctx, dims, Some("shadow_depth_texture"));
 
         let texture_pipelines = pipeline::TexturePipelines::new(&ctx, &target, &layouts)?;
-        let shadow_pipeline = pipeline::ShadowPipeline::new(&ctx, &layouts)?;
+        let shadow_pipeline = pipeline::ShadowPipeline::new(&ctx, &layouts);
 
-        let light_pipeline = pipeline::LightPipeline::new(&ctx, &target, &layouts)?;
+        let light_pipeline = pipeline::LightPipeline::new(&ctx, &target, &layouts);
 
         let model_resource_storage = ResourceStorage::new();
 
