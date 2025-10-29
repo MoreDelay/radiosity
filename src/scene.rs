@@ -203,7 +203,7 @@ impl SceneState {
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let draw_world = self.manager.create_draw();
+        let draw_world = self.manager.create_draw(self.pipeline_mode);
         self.render_state.borrow_mut().draw(draw_world)
     }
 

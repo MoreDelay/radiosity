@@ -106,12 +106,10 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     let world_position = model_matrix * vec4<f32>(model.position, 1.0);
     out.clip_position = camera.view_proj * world_position;
     out.world_position = world_position.xyz;
-
     @if(TEX_COORD)
     {
         out.tex_coords = model.tex_coords;
     }
-
     out.tangent_position = tangent_matrix * world_position.xyz;
     out.tangent_view_position = tangent_matrix * camera.view_pos.xyz;
     out.tangent_light_position = tangent_matrix * light.position;
@@ -148,7 +146,6 @@ fn normal_from_map(tex_coords: vec2<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-
     @if(COLOR_MAP && TEX_COORD)
     let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     @else
@@ -164,7 +161,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let light_dir = normalize(in.tangent_light_position - in.tangent_position);
     let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
-    let diffuse_color = phong.diffuse_color * light.color * diffuse_strength;
+    let diffuse_color = object_color.xyz * phong.diffuse_color * light.color * diffuse_strength;
 
     let view_dir = normalize(in.tangent_view_position - in.tangent_position);
     let half_dir = normalize(view_dir + light_dir);

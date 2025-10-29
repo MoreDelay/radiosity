@@ -121,6 +121,7 @@ pub struct Texture {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct TextureIndex(u32);
 
+#[derive(Debug)]
 pub enum Image {
     Path(PathBuf),
     #[expect(unused)]

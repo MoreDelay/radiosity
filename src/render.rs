@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, sync::Arc};
+use std::{num::NonZeroU32, ops::Deref, sync::Arc};
 
 use anyhow::Result;
 use winit::window::Window;
@@ -12,6 +12,7 @@ mod pipeline;
 mod raw;
 mod resource;
 
+pub use pipeline::PhongCapabilites;
 pub use raw::*;
 pub use resource::{
     BiTangentBufferIndex,
@@ -126,15 +127,12 @@ pub struct RenderState {
     ctx: GpuContext,
     target: TargetContext,
     layouts: resource::PhongLayouts,
-    texture_pipelines: pipeline::TexturePipelines,
+    phong_pipelines: pipeline::PhongPipelines,
     depth_texture: resource::DepthTexture,
     shadow_binding: resource::ShadowBindings,
-    shadow_pipeline: pipeline::ShadowPipeline,
     shadow_depth_texture: resource::DepthTexture,
     camera_binding: resource::CameraBinding,
     light_binding: resource::LightBinding,
-    #[expect(unused)]
-    light_pipeline: pipeline::LightPipeline,
     model_resource_storage: ResourceStorage,
 }
 
@@ -152,7 +150,7 @@ impl RenderState {
         let depth_texture = resource::DepthTexture::new(&ctx, depth_dims, Some("depth_texture"));
 
         let layouts = resource::PhongLayouts::new(&ctx);
-        let _new_pipelines = pipeline::PhongPipelines::new(&ctx, &target, &layouts);
+        let phong_pipelines = pipeline::PhongPipelines::new(&ctx, &target, &layouts);
 
         let camera_binding = resource::CameraBinding::new(&ctx, &layouts, camera, Some("Single"));
         let light_binding = resource::LightBinding::new(&ctx, &layouts, light, Some("Single"));
@@ -166,25 +164,18 @@ impl RenderState {
         let shadow_depth_texture =
             resource::DepthTexture::new(&ctx, dims, Some("shadow_depth_texture"));
 
-        let texture_pipelines = pipeline::TexturePipelines::new(&ctx, &target, &layouts)?;
-        let shadow_pipeline = pipeline::ShadowPipeline::new(&ctx, &layouts);
-
-        let light_pipeline = pipeline::LightPipeline::new(&ctx, &target, &layouts);
-
         let model_resource_storage = ResourceStorage::new();
 
         Ok(Self {
             ctx,
             target,
             layouts,
+            phong_pipelines,
             depth_texture,
             shadow_binding,
-            shadow_pipeline,
             shadow_depth_texture,
             camera_binding,
             light_binding,
-            texture_pipelines,
-            light_pipeline,
             model_resource_storage,
         })
     }
@@ -222,7 +213,7 @@ impl RenderState {
 
         // blocks until surface provides render target
         let output = self.target.surface.get_current_texture()?;
-        let view = output
+        let output_view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         // command buffer for GPU
@@ -232,20 +223,19 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("RenderCommandEncoder"),
             });
-        // clear out window by writing a color
 
         // create shadow map
         let resource::ShadowBindings {
             transform_binds,
-            layer_views,
+            cube_views,
             ..
         } = &self.shadow_binding;
 
-        for (view, bind) in layer_views.iter().zip(transform_binds.iter()) {
+        for (cube_view, transform_bind) in cube_views.iter().zip(transform_binds.iter()) {
             let mut shadow_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Shadow RenderPass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
+                    view: cube_view,
                     resolve_target: None, // used for multi-sampling
                     ops: wgpu::Operations {
                         // can skip clear if rendering will cover whole surface anyway
@@ -270,70 +260,27 @@ impl RenderState {
                 timestamp_writes: None,
             });
 
-            shadow_render_pass.set_pipeline(&self.shadow_pipeline);
-            shadow_render_pass.set_bind_group(0, bind, &[]);
+            let pipeline = self.phong_pipelines.get_shadow();
+
+            shadow_render_pass.set_pipeline(pipeline);
+            shadow_render_pass.set_bind_group(0, transform_bind, &[]);
             shadow_render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
 
             for &index in sorted_draws.iter() {
                 let draw = &draw_world.draw_calls[index as usize];
 
                 let index = self.model_resource_storage.index_buffer(draw.index);
-
                 let position = self.model_resource_storage.position_buffer(draw.position);
-                let tex_coord = self.model_resource_storage.tex_coord_buffer(draw.tex_coord);
-                let normal = self.model_resource_storage.normal_buffer(draw.normal);
-                let tangent = self.model_resource_storage.tangent_buffer(draw.tangent);
-                let bi_tangent = self
-                    .model_resource_storage
-                    .bi_tangent_buffer(draw.bi_tangent);
-
                 let instance = self
                     .model_resource_storage
                     .get_instance_buffer(draw.instance);
 
                 shadow_render_pass
                     .set_index_buffer(index.buffer.slice(..), wgpu::IndexFormat::Uint32);
-
                 shadow_render_pass.set_vertex_buffer(0, position.buffer.slice(..));
-                shadow_render_pass.set_vertex_buffer(1, tex_coord.buffer.slice(..));
-                shadow_render_pass.set_vertex_buffer(2, normal.buffer.slice(..));
-                shadow_render_pass.set_vertex_buffer(3, tangent.buffer.slice(..));
-                shadow_render_pass.set_vertex_buffer(4, bi_tangent.buffer.slice(..));
-
-                shadow_render_pass.set_vertex_buffer(5, instance.buffer.slice(..));
-
+                shadow_render_pass.set_vertex_buffer(1, instance.buffer.slice(..));
                 shadow_render_pass.draw_indexed(draw.slice.clone(), 0, 0..instance.num_instances);
             }
-
-            // for mesh_iter in mtl_iter.clone() {
-            //     for draw_slice in mesh_iter {
-            //         let DrawSlice {
-            //             buffer_index,
-            //             slice,
-            //             instance_index,
-            //             ..
-            //         } = draw_slice;
-            //
-            //         let mesh = self.model_resource_storage.get_mesh_buffer(buffer_index);
-            //
-            //         let instance_slice = if let Some(instance_index) = instance_index {
-            //             let instances = self
-            //                 .model_resource_storage
-            //                 .get_instance_buffer(instance_index);
-            //
-            //             shadow_render_pass.set_vertex_buffer(1, instances.buffer.slice(..));
-            //             0..instances.num_instances
-            //         } else {
-            //             0..1 // default to use when no instances are set, per wgpu docs
-            //         };
-            //
-            //         shadow_render_pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-            //         shadow_render_pass
-            //             .set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-            //
-            //         shadow_render_pass.draw_indexed(slice, 0, instance_slice);
-            //     }
-            // }
         }
 
         // render models
@@ -342,7 +289,7 @@ impl RenderState {
             color_attachments: &[
                 // target for fragment shader @location(0)
                 Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &output_view,
                     resolve_target: None, // used for multi-sampling
                     ops: wgpu::Operations {
                         // can skip clear if rendering will cover whole surface anyway
@@ -367,53 +314,101 @@ impl RenderState {
             occlusion_query_set: None,
             timestamp_writes: None,
         });
+        let shadow_texture = &self.shadow_binding.cube_bind;
 
+        // constant bindings
         render_pass.set_bind_group(0, &self.camera_binding.bind_group, &[]);
         render_pass.set_bind_group(1, &self.light_binding.bind_group, &[]);
+        render_pass.set_bind_group(3, shadow_texture, &[]);
 
-        let mut current_material = None;
+        #[derive(Debug, Copy, Clone)]
+        struct DrawState {
+            material: MaterialBindingIndex,
+            requirements: pipeline::PhongResourceRequirements,
+        }
+        let mut draw_state: Option<DrawState> = None;
         for &index in sorted_draws.iter() {
             let draw = &draw_world.draw_calls[index as usize];
 
-            if current_material.is_none_or(|mtl| mtl != draw.material) {
+            if draw_state.is_none_or(|state| state.material != draw.material) {
                 let material = self
                     .model_resource_storage
                     .get_material_binding(draw.material);
+                let caps = PhongCapabilites {
+                    color_map: material.color.is_some() && draw.caps_filter.color_map,
+                    normal_map: material.normal.is_some() && draw.caps_filter.normal_map,
+                };
+                let pipeline = self.phong_pipelines.get_render(caps);
+                let reqs = pipeline.requirements();
+
+                render_pass.set_pipeline(pipeline);
+
+                if let Some(color_index) = reqs.bindings.color_texture {
+                    let color_bind = material.color.as_ref().expect("checked above").deref();
+                    render_pass.set_bind_group(color_index, color_bind, &[]);
+                }
+                if let Some(normal_index) = reqs.bindings.normal_texture {
+                    let normal_bind = material.normal.as_ref().expect("checked above").deref();
+                    render_pass.set_bind_group(normal_index, normal_bind, &[]);
+                }
+
                 render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
 
-                current_material = Some(draw.material);
+                draw_state = Some(DrawState {
+                    material: draw.material,
+                    requirements: reqs,
+                });
             }
-
-            let pipeline = &self.texture_pipelines.get_flat();
-            render_pass.set_pipeline(pipeline);
-            let shadow_texture = &self.shadow_binding.cube_bind;
-            render_pass.set_bind_group(3, shadow_texture, &[]);
+            let reqs = draw_state.expect("set above").requirements;
 
             let index = self.model_resource_storage.index_buffer(draw.index);
 
-            let position = self.model_resource_storage.position_buffer(draw.position);
-            let tex_coord = self.model_resource_storage.tex_coord_buffer(draw.tex_coord);
-            let normal = self.model_resource_storage.normal_buffer(draw.normal);
-            let tangent = self.model_resource_storage.tangent_buffer(draw.tangent);
-            let bi_tangent = self
-                .model_resource_storage
-                .bi_tangent_buffer(draw.bi_tangent);
+            let mut vertex_slot = 0;
+            let mut next_slot = || {
+                vertex_slot += 1;
+                vertex_slot - 1
+            };
 
-            let instance = self
-                .model_resource_storage
-                .get_instance_buffer(draw.instance);
+            if reqs.vertex.position.filled() {
+                let position = self.model_resource_storage.position_buffer(draw.position);
+                render_pass.set_vertex_buffer(next_slot(), position.buffer.slice(..));
+            }
+
+            if reqs.vertex.tex_coord.filled() {
+                let tex_coord = self.model_resource_storage.tex_coord_buffer(draw.tex_coord);
+                render_pass.set_vertex_buffer(next_slot(), tex_coord.buffer.slice(..));
+            }
+
+            if reqs.vertex.normal.filled() {
+                let normal = self.model_resource_storage.normal_buffer(draw.normal);
+                render_pass.set_vertex_buffer(next_slot(), normal.buffer.slice(..));
+            }
+
+            if reqs.vertex.tangent.filled() {
+                let tangent = self.model_resource_storage.tangent_buffer(draw.tangent);
+                render_pass.set_vertex_buffer(next_slot(), tangent.buffer.slice(..));
+            }
+
+            if reqs.vertex.bi_tangent.filled() {
+                let bi_tangent = self
+                    .model_resource_storage
+                    .bi_tangent_buffer(draw.bi_tangent);
+                render_pass.set_vertex_buffer(next_slot(), bi_tangent.buffer.slice(..));
+            }
+
+            let instances = if reqs.vertex.instance.filled() {
+                let instance = self
+                    .model_resource_storage
+                    .get_instance_buffer(draw.instance);
+                render_pass.set_vertex_buffer(next_slot(), instance.buffer.slice(..));
+                instance.num_instances
+            } else {
+                1
+            };
 
             render_pass.set_index_buffer(index.buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-            render_pass.set_vertex_buffer(0, position.buffer.slice(..));
-            render_pass.set_vertex_buffer(1, tex_coord.buffer.slice(..));
-            render_pass.set_vertex_buffer(2, normal.buffer.slice(..));
-            render_pass.set_vertex_buffer(3, tangent.buffer.slice(..));
-            render_pass.set_vertex_buffer(4, bi_tangent.buffer.slice(..));
-
-            render_pass.set_vertex_buffer(5, instance.buffer.slice(..));
-
-            render_pass.draw_indexed(draw.slice.clone(), 0, 0..instance.num_instances);
+            render_pass.draw_indexed(draw.slice.clone(), 0, 0..instances);
         }
 
         // for mesh_iter in mtl_iter {

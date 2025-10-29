@@ -10,7 +10,7 @@ use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
 use zerocopy::IntoBytes;
 
-use crate::model;
+use crate::{model, render::pipeline::PhongCapabilites};
 
 use super::{CameraRaw, GpuContext, LightRaw, PhongRaw};
 
@@ -273,9 +273,7 @@ impl Deref for NormalBinding {
 
 pub struct MaterialBindings {
     pub phong_binding: PhongBinding,
-    #[expect(unused)]
     pub color: Option<ColorBinding>,
-    #[expect(unused)]
     pub normal: Option<NormalBinding>,
 }
 
@@ -541,7 +539,7 @@ pub struct ShadowBindings {
 
     pub cube_bind: wgpu::BindGroup,
     pub transform_binds: [wgpu::BindGroup; 6],
-    pub layer_views: [wgpu::TextureView; 6],
+    pub cube_views: [wgpu::TextureView; 6],
 }
 
 impl ShadowBindings {
@@ -687,7 +685,7 @@ impl ShadowBindings {
             cube_view,
             view_buffers,
             transform_binds,
-            layer_views,
+            cube_views: layer_views,
         }
     }
 
@@ -1103,6 +1101,7 @@ impl ResourceStorage {
 #[derive(Debug)]
 pub struct DrawCall {
     pub material: MaterialBindingIndex,
+    pub caps_filter: PhongCapabilites,
     pub instance: InstanceBufferIndex,
 
     // primitive data
