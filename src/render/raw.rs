@@ -49,15 +49,6 @@ pub struct PhongRaw {
     pub _padding2: u32,
 }
 
-// /// Data format used to transfer light information to the GPU.
-// #[repr(C)]
-// #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-// pub struct CubeViewRaw {
-//     /// column-major homogeneous transformation matrix
-//     pub view_proj: [[f32; 4]; 4],
-// }
-// impl private::RawLayout for CubeViewRaw {}
-
 /// Data format used to transfer information for a model vertex to the GPU.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
