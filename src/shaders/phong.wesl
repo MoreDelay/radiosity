@@ -126,20 +126,9 @@ fn is_in_light(world_position: vec3<f32>) -> f32 {
     return select(1., 0., depth > sample);
 }
 
-fn face_index(dir: vec3<f32>) -> u32 {
-    let a = abs(dir);
-    if a.x >= a.y && a.x >= a.z {
-        return select(1u, 0u, dir.x > 0.0); // 0 = +X, 1 = -X
-    }
-    if a.y >= a.x && a.y >= a.z {
-        return select(3u, 2u, dir.y > 0.0); // 2 = +Y, 3 = -Y
-    }
-    return select(5u, 4u, dir.z > 0.0);     // 4 = +Z, 5 = -Z
-}
-
 @if(NORMAL_MAP)
 fn normal_from_map(tex_coords: vec2<f32>) -> vec3<f32> {
-    let object_normal: vec4<f32> = textureSample(t_normal, s_normal, tex_coords);
+    let object_normal = textureSample(t_normal, s_normal, tex_coords);
     let tangent_normal = object_normal.xyz * 2.0 - 1.0;
     return tangent_normal;
 }
@@ -147,14 +136,14 @@ fn normal_from_map(tex_coords: vec2<f32>) -> vec3<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     @if(COLOR_MAP && TEX_COORD)
-    let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let object_color = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     @else
-    let object_color: vec4<f32> = vec4(1., 1., 1., 1.);
+    let object_color = vec4(1., 1., 1., 1.);
 
     @if(NORMAL_MAP && TEX_COORD)
-    let tangent_normal: vec3<f32> = normal_from_map(in.tex_coords);
+    let tangent_normal = normal_from_map(in.tex_coords);
     @else
-    let tangent_normal: vec3<f32> = vec3(0., 0., 1.);
+    let tangent_normal = vec3(0., 0., 1.);
 
     let ambient_strength = 0.1;
     let ambient_color = phong.ambient_color * light.color * ambient_strength;

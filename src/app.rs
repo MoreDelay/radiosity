@@ -185,17 +185,24 @@ impl ApplicationHandler for App {
                     state: ElementState::Pressed,
                     ..
                 } => {
-                    use crate::render::PipelineMode::*;
-                    let mode = scene.toggle_pipeline();
-                    println!(
-                        "toggle pipeline: {}",
-                        match mode {
-                            Flat => "flat",
-                            Color => "color",
-                            Normal => "normal",
-                            ColorNormal => "color-normal",
-                        }
-                    );
+                    let now_in_use = scene.toggle_color_map();
+                    let status = match now_in_use {
+                        true => "on",
+                        false => "off",
+                    };
+                    println!("toggle color map: {status}");
+                }
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(KeyCode::KeyN),
+                    state: ElementState::Pressed,
+                    ..
+                } => {
+                    let now_in_use = scene.toggle_normal_map();
+                    let status = match now_in_use {
+                        true => "on",
+                        false => "off",
+                    };
+                    println!("toggle normal map: {status}");
                 }
                 KeyEvent {
                     physical_key: PhysicalKey::Code(KeyCode::KeyC),
@@ -260,7 +267,8 @@ impl App {
 Controls:
 q: quit
 h: show this message again
-t: cycle through textures
+t: toggle color texture
+t: toggle normal texture
 c: toggle between satelite and first-person camera
 p: toggle light movement
 wasd: move in first-person view

@@ -29,14 +29,6 @@ pub use resource::{
 
 const SHADER_ROOT: &str = "src/shaders";
 
-#[derive(Copy, Clone, Debug)]
-pub enum PipelineMode {
-    Flat,
-    Color,
-    Normal,
-    ColorNormal,
-}
-
 pub struct GpuContext {
     device: wgpu::Device,
     queue: wgpu::Queue,

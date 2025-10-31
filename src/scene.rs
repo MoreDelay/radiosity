@@ -9,11 +9,12 @@ pub mod manager;
 
 pub struct SceneState {
     render_state: Rc<RefCell<render::RenderState>>,
-    pipeline_mode: render::PipelineMode,
+    use_color_map: bool,
+    use_normal_map: bool,
     use_first_person_camera: bool,
     last_time: std::time::Instant,
     _storage: Rc<RefCell<model::Storage>>,
-    manager: manager::DrawManager,
+    draw_manager: manager::DrawManager,
     _instances: Vec<model::Instance>,
     target_camera: camera::TargetCamera,
     first_person_camera: camera::FirstPersonCamera,
@@ -32,7 +33,6 @@ impl SceneState {
         let direction = na::Unit::new_normalize(focus - pos);
         let first_person_camera = camera::FirstPersonCamera::new(pos, direction, frame);
 
-        // let light_pos = [2., 2., 2.].into();
         let light_pos = pos;
         let color = model::Color {
             r: 1.,
@@ -40,7 +40,13 @@ impl SceneState {
             b: 1.,
         };
         let light = light::Light::new(light_pos, color);
-        let last_time = std::time::Instant::now();
+
+        let render_state = Rc::new(RefCell::new(
+            render::RenderState::create(ctx, target, &target_camera.to_raw(), &light.to_raw())
+                .unwrap(),
+        ));
+
+        let mut draw_manager = manager::DrawManager::new(Rc::clone(&render_state));
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         // let model_path = root.join("resources/sibenik/sibenik.obj");
@@ -51,16 +57,9 @@ impl SceneState {
         let mut mtl_manager = model::parser::SimpleMtlManager::new(model_root.to_path_buf());
         let parsed_obj =
             model::parser::obj::load_obj(&model_path, &mut mtl_manager).expect("worked above");
-        let index_new = storage
+        let model_index = storage
             .borrow_mut()
             .store_obj(parsed_obj, mtl_manager.extract_list());
-
-        let render_state = Rc::new(RefCell::new(
-            render::RenderState::create(ctx, target, &target_camera.to_raw(), &light.to_raw())
-                .unwrap(),
-        ));
-
-        let mut manager = manager::DrawManager::new(Rc::clone(&render_state));
 
         const NUM_INSTANCES_PER_ROW: usize = 5;
         const SPACE_BETWEEN: f32 = 3.;
@@ -92,18 +91,16 @@ impl SceneState {
             .borrow_mut()
             .add_instance_buffer(&instances, Some("Grid"));
 
-        manager.add_mesh(&storage.borrow(), index_new, instance_index, Some("Cube"));
-
-        let pipeline_mode = render::PipelineMode::Flat;
-        let use_first_person_camera = false;
+        draw_manager.add_mesh(&storage.borrow(), model_index, instance_index, Some("Cube"));
 
         SceneState {
-            pipeline_mode,
             render_state,
-            use_first_person_camera,
-            last_time,
+            use_color_map: false,
+            use_normal_map: false,
+            use_first_person_camera: false,
+            last_time: std::time::Instant::now(),
             _storage: storage,
-            manager,
+            draw_manager,
             _instances: instances,
             target_camera,
             first_person_camera,
@@ -201,7 +198,11 @@ impl SceneState {
     }
 
     pub fn draw(&mut self) -> Result<(), wgpu::SurfaceError> {
-        let draw_world = self.manager.create_draw(self.pipeline_mode);
+        let caps = render::PhongCapabilites {
+            color_map: self.use_color_map,
+            normal_map: self.use_normal_map,
+        };
+        let draw_world = self.draw_manager.create_draw(caps);
         self.render_state.borrow_mut().draw(draw_world)
     }
 
@@ -210,17 +211,14 @@ impl SceneState {
         self.light.toggle_pause()
     }
 
-    /// toggles the pipeline mode and returns the mode used after toggling
-    pub fn toggle_pipeline(&mut self) -> render::PipelineMode {
-        use render::PipelineMode::*;
-        let next_mode = match self.pipeline_mode {
-            Flat => Color,
-            Color => Normal,
-            Normal => ColorNormal,
-            ColorNormal => Flat,
-        };
-        self.pipeline_mode = next_mode;
-        next_mode
+    pub fn toggle_color_map(&mut self) -> bool {
+        self.use_color_map = !self.use_color_map;
+        self.use_color_map
+    }
+
+    pub fn toggle_normal_map(&mut self) -> bool {
+        self.use_normal_map = !self.use_normal_map;
+        self.use_normal_map
     }
 
     pub fn toggle_camera(&mut self) -> bool {

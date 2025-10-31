@@ -227,26 +227,7 @@ impl DrawManager {
         self.meshes.insert(mesh_index, mesh_info);
     }
 
-    pub fn create_draw(&self, mode: render::PipelineMode) -> render::DrawWorld {
-        let caps_filter = match mode {
-            render::PipelineMode::Flat => render::PhongCapabilites {
-                color_map: false,
-                normal_map: false,
-            },
-            render::PipelineMode::Color => render::PhongCapabilites {
-                color_map: true,
-                normal_map: false,
-            },
-            render::PipelineMode::Normal => render::PhongCapabilites {
-                color_map: false,
-                normal_map: true,
-            },
-            render::PipelineMode::ColorNormal => render::PhongCapabilites {
-                color_map: true,
-                normal_map: true,
-            },
-        };
-
+    pub fn create_draw(&self, caps: render::PhongCapabilites) -> render::DrawWorld {
         let draw_calls = self
             .meshes
             .values()
@@ -267,7 +248,7 @@ impl DrawManager {
 
                     render::DrawCall {
                         material,
-                        caps_filter,
+                        caps_filter: caps,
                         instance,
                         index,
                         slice,
