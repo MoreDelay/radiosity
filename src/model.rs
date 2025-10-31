@@ -101,8 +101,7 @@ pub struct Material {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct MaterialIndex(u32);
 
-#[expect(unused)]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Sampler {
     pub mag_filter: Filter,
     pub min_filter: Filter,
@@ -111,28 +110,31 @@ pub struct Sampler {
     pub wrap_t: WrapMode,
 }
 
+impl Sampler {
+    pub fn to_desc<'a>(&self, label: Option<&'a str>) -> wgpu::SamplerDescriptor<'a> {
+        wgpu::SamplerDescriptor {
+            label,
+            address_mode_u: self.wrap_s.into(),
+            address_mode_v: self.wrap_t.into(),
+            mag_filter: self.mag_filter.into(),
+            min_filter: self.min_filter.into(),
+            mipmap_filter: self.mipmap_filter.into(),
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Texture {
-    pub _sampler: Sampler,
+    pub sampler: Sampler,
     pub image: ImageIndex,
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct TextureIndex(u32);
-
-#[derive(Debug)]
-pub enum Image {
-    Path(PathBuf),
-    #[expect(unused)]
-    Data {
-        data: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
-        path: Option<PathBuf>,
-    },
-}
-
-impl Image {
-    pub fn to_raw(&self) -> render::TextureRaw {
-        let (data, dims) = match self {
+impl Texture {
+    pub fn to_raw(&self, storage: &Storage) -> render::TextureRaw {
+        let &Texture { sampler, image } = self;
+        let image = storage.image(image);
+        let (data, dims) = match image {
             Image::Path(path) => {
                 let image = image::ImageReader::open(path)
                     .expect("path must exist")
@@ -156,8 +158,26 @@ impl Image {
             depth_or_array_layers: 1,
         };
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        render::TextureRaw { data, format, size }
+        render::TextureRaw {
+            data,
+            format,
+            size,
+            sampler,
+        }
     }
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TextureIndex(u32);
+
+#[derive(Debug)]
+pub enum Image {
+    Path(PathBuf),
+    #[expect(unused)]
+    Data {
+        data: image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+        path: Option<PathBuf>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -342,7 +362,7 @@ impl Storage {
             let image = Image::Path(path);
             let index = inner.store_image(image);
             let texture = Texture {
-                _sampler: Sampler::default(),
+                sampler: Sampler::default(),
                 image: index,
             };
             let index = inner.store_texture(texture);
@@ -472,7 +492,6 @@ impl Storage {
     }
 }
 
-#[expect(unused)]
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Filter {
     Nearest,
@@ -480,13 +499,31 @@ pub enum Filter {
     Linear,
 }
 
-#[expect(unused)]
+impl From<Filter> for wgpu::FilterMode {
+    fn from(value: Filter) -> Self {
+        match value {
+            Filter::Nearest => wgpu::FilterMode::Nearest,
+            Filter::Linear => wgpu::FilterMode::Linear,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub enum WrapMode {
     ClampToEdge,
     MirroredRepeat,
     #[default]
     Repeat,
+}
+
+impl From<WrapMode> for wgpu::AddressMode {
+    fn from(value: WrapMode) -> Self {
+        match value {
+            WrapMode::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+            WrapMode::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+            WrapMode::Repeat => wgpu::AddressMode::Repeat,
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

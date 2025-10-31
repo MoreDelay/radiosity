@@ -192,20 +192,17 @@ impl DrawManager {
                     hash_map::Entry::Vacant(entry) => {
                         let data = storage.material(*entry.key());
                         let model::MaterialType::BlinnPhong(phong_params) = &data.data;
-                        let diffuse_map = phong_params.diffuse_map.map(|i| {
-                            let texture = storage.texture(i);
-                            storage.image(texture.image)
-                        });
+                        let diffuse_map = phong_params
+                            .diffuse_map
+                            .map(|i| storage.texture(i).to_raw(storage));
 
-                        let normal_texture = data.normal.map(|i| {
-                            let texture = storage.texture(i);
-                            storage.image(texture.image)
-                        });
+                        let normal_texture =
+                            data.normal.map(|i| storage.texture(i).to_raw(storage));
 
                         let index = render_state.add_material(
                             &phong_params.to_raw(),
-                            diffuse_map,
-                            normal_texture,
+                            diffuse_map.as_ref(),
+                            normal_texture.as_ref(),
                             label,
                         );
                         *entry.insert(index)

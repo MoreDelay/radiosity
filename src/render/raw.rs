@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::render::GpuContext;
+use crate::{model, render::GpuContext};
 
 use super::resource::Texture;
 
@@ -82,6 +82,7 @@ pub struct TextureRaw {
     pub data: Box<[u8]>,
     pub format: wgpu::TextureFormat,
     pub size: wgpu::Extent3d,
+    pub sampler: model::Sampler,
 }
 
 impl TextureRaw {
@@ -90,6 +91,7 @@ impl TextureRaw {
             ref data,
             format,
             size,
+            sampler,
         } = self;
 
         let texture = ctx.device.create_texture(&wgpu::TextureDescriptor {
@@ -122,15 +124,9 @@ impl TextureRaw {
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = ctx.device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
+        let sampler = ctx
+            .device
+            .create_sampler(&sampler.to_desc(label.map(|s| format!("{s}-Sampler")).as_deref()));
         Texture {
             _texture: texture,
             view,

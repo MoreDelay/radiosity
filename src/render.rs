@@ -477,8 +477,8 @@ impl RenderState {
     pub fn add_material(
         &mut self,
         phong: &PhongRaw,
-        color: Option<&model::Image>,
-        normal: Option<&model::Image>,
+        color: Option<&TextureRaw>,
+        normal: Option<&TextureRaw>,
         label: Option<&str>,
     ) -> MaterialBindingIndex {
         self.model_resource_storage.upload_material(

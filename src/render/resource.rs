@@ -12,7 +12,7 @@ use zerocopy::IntoBytes;
 
 use crate::{model, render::pipeline::PhongCapabilites};
 
-use super::{CameraRaw, GpuContext, LightRaw, PhongRaw};
+use super::{CameraRaw, GpuContext, LightRaw, PhongRaw, TextureRaw};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextureDims {
@@ -279,13 +279,13 @@ impl MaterialBindings {
         ctx: &GpuContext,
         layouts: &PhongLayouts,
         phong: &PhongRaw,
-        color_texture: Option<&model::Image>,
-        normal_texture: Option<&model::Image>,
+        color_texture: Option<&TextureRaw>,
+        normal_texture: Option<&TextureRaw>,
         label: Option<&str>,
     ) -> Self {
         let color = color_texture.map(|t| {
             let texture_label = label.map(|s| format!("{s}-ColorTexture"));
-            let texture = t.to_raw().create_texture(ctx, texture_label.as_deref());
+            let texture = t.create_texture(ctx, texture_label.as_deref());
             let entries = [
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -309,7 +309,7 @@ impl MaterialBindings {
 
         let normal = normal_texture.map(|t| {
             let texture_label = label.map(|s| format!("{s}-NormalTexture"));
-            let texture = t.to_raw().create_texture(ctx, texture_label.as_deref());
+            let texture = t.create_texture(ctx, texture_label.as_deref());
             let entries = [
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -331,7 +331,7 @@ impl MaterialBindings {
             }
         });
 
-        let phong_label = label.map(|s| format!("{s}-PhongTexture"));
+        let phong_label = label.map(|s| format!("{s}-PhongMaterial"));
         let phong_binding = PhongBinding::new(ctx, layouts, phong, phong_label.as_deref());
 
         Self {
@@ -1086,8 +1086,8 @@ impl ResourceStorage {
         ctx: &GpuContext,
         layouts: &PhongLayouts,
         phong: &PhongRaw,
-        color_texture: Option<&model::Image>,
-        normal_texture: Option<&model::Image>,
+        color_texture: Option<&TextureRaw>,
+        normal_texture: Option<&TextureRaw>,
         label: Option<&str>,
     ) -> MaterialBindingIndex {
         let index = self.material_bindings.len();
