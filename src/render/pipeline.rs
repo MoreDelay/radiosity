@@ -167,18 +167,26 @@ impl PhongPipeline {
         let bind_group_layouts = requirements.bindings.create_bind_group_layouts(layouts);
         let vertex_layout = requirements.vertex.create_vertex_layout();
 
-        let mut features = Vec::new();
-        let mut constants = Vec::new();
+        let mut features = vec![
+            ("HAS_NORMAL", true),
+            ("HAS_TANGENT", true),
+            ("HAS_BI_TANGENT", true),
+            ("USE_SHADOW_MAP", true),
+        ];
+        let mut constants = vec![(
+            "SHADOW_MAP_SLOT",
+            requirements.bindings.shadow_texture.unwrap() as f64,
+        )];
 
         if requirements.vertex.tex_coord.filled() {
-            features.push(("TEX_COORD", true));
+            features.push(("HAS_TEX_COORD", true));
         }
         if let Some(slot) = requirements.bindings.color_texture {
-            features.push(("COLOR_MAP", true));
+            features.push(("USE_COLOR_MAP", true));
             constants.push(("COLOR_MAP_SLOT", slot as f64));
         }
         if let Some(slot) = requirements.bindings.normal_texture {
-            features.push(("NORMAL_MAP", true));
+            features.push(("USE_NORMAL_MAP", true));
             constants.push(("NORMAL_MAP_SLOT", slot as f64));
         }
 
@@ -272,7 +280,7 @@ impl Deref for PhongPipeline {
 #[derive(Debug)]
 pub struct PhongPipelines {
     render: [PhongPipeline; Self::RENDER_VARIANTS as usize + 1],
-    _light: LightPipeline,
+    light: LightPipeline,
     shadow: ShadowPipeline,
 }
 
@@ -292,7 +300,7 @@ impl PhongPipelines {
         let shadow = ShadowPipeline::new(ctx, layouts);
         Self {
             render,
-            _light: light,
+            light,
             shadow,
         }
     }
@@ -302,9 +310,8 @@ impl PhongPipelines {
         &self.render[index as usize]
     }
 
-    #[expect(unused)]
     pub fn get_light(&self) -> &LightPipeline {
-        &self._light
+        &self.light
     }
 
     pub fn get_shadow(&self) -> &ShadowPipeline {
@@ -329,36 +336,111 @@ impl PhongPipelines {
 }
 
 #[derive(Debug)]
-pub struct LightPipeline(wgpu::RenderPipeline);
+pub struct LightPipeline(pub PhongPipeline);
 
 impl LightPipeline {
-    const SHADER: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/shaders/light.wgsl"
-    ));
-
     pub fn new(ctx: &GpuContext, target: &TargetContext, layouts: &PhongLayouts) -> Self {
-        let layout = ctx
+        let vertex = PhongVertexRequirements {
+            position: VertexSlot::Filled,
+            tex_coord: VertexSlot::Empty,
+            normal: VertexSlot::Empty,
+            tangent: VertexSlot::Empty,
+            bi_tangent: VertexSlot::Empty,
+            instance: VertexSlot::Filled,
+        };
+
+        let bindings = {
+            let mut slot_counter = 0;
+            let mut next_slot = || {
+                slot_counter += 1;
+                slot_counter - 1
+            };
+
+            PhongBindingRequirements {
+                camera: Some(next_slot()),
+                shadow_transform: None,
+                light: None,
+                phong: Some(next_slot()),
+                shadow_texture: None,
+                color_texture: None,
+                normal_texture: None,
+            }
+        };
+        let requirements = PhongResourceRequirements { vertex, bindings };
+
+        let vertex_layout = requirements.vertex.create_vertex_layout();
+
+        let shader = wesl::Wesl::new(super::SHADER_ROOT)
+            .compile(&PhongPipeline::ENTRY.parse().unwrap())
+            .inspect_err(|e| eprintln!("WESL error: {e}"))
+            .unwrap()
+            .to_string();
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("Light Shader"),
+            source: wgpu::ShaderSource::Wgsl(shader.into()),
+        };
+        let shader = ctx.device.create_shader_module(shader);
+
+        let pipeline_layout = ctx
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Light Pipeline Layout"),
-                bind_group_layouts: &[&layouts.camera, &layouts.light],
+                bind_group_layouts: &[&layouts.camera, &layouts.light, &layouts.phong],
                 push_constant_ranges: &[],
             });
-        let shader = wgpu::ShaderModuleDescriptor {
-            label: Some("Light Shader"),
-            source: wgpu::ShaderSource::Wgsl(Self::SHADER.into()),
-        };
-        let pipeline = create_render_pipeline(
-            ctx,
-            target,
-            &layout,
-            Some(resource::DepthTexture::FORMAT),
-            &[raw::VertexRaw::desc(), raw::InstanceRaw::desc()],
-            shader,
-            Some("Light Pipeline"),
-        );
-        Self(pipeline)
+        let pipeline = ctx
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Light Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &vertex_layout,
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target.config.format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    // other than Fill requires Features::NON_FILL_POLYGON_MODE
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    // requires Features::DEPTH_CLIP_CONTROL
+                    unclipped_depth: false,
+                    // requires Features::CONSERVATIVE_RASTERIZATION
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: resource::DepthTexture::FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less, // what pixels to keep
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0, // use all samples
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            });
+
+        Self(PhongPipeline {
+            pipeline,
+            requirements,
+        })
     }
 
     #[expect(unused)]
@@ -385,7 +467,7 @@ impl LightPipeline {
 }
 
 impl Deref for LightPipeline {
-    type Target = wgpu::RenderPipeline;
+    type Target = PhongPipeline;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -493,64 +575,4 @@ impl Deref for ShadowPipeline {
     fn deref(&self) -> &Self::Target {
         &self.0
     }
-}
-
-fn create_render_pipeline(
-    ctx: &GpuContext,
-    target: &TargetContext,
-    layout: &wgpu::PipelineLayout,
-    depth_format: Option<wgpu::TextureFormat>,
-    vertex_layout: &[wgpu::VertexBufferLayout],
-    shader: wgpu::ShaderModuleDescriptor,
-    label: Option<&str>,
-) -> wgpu::RenderPipeline {
-    let shader = ctx.device.create_shader_module(shader);
-
-    ctx.device
-        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label,
-            layout: Some(layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: vertex_layout,
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: target.config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                // other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                // requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: depth_format.map(|depth_format| wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less, // what pixels to keep
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0, // use all samples
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        })
 }

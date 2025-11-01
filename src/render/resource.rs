@@ -268,13 +268,13 @@ impl Deref for NormalBinding {
     }
 }
 
-pub struct MaterialBindings {
+pub struct MaterialBindingGroup {
     pub phong_binding: PhongBinding,
     pub color: Option<ColorBinding>,
     pub normal: Option<NormalBinding>,
 }
 
-impl MaterialBindings {
+impl MaterialBindingGroup {
     pub fn new(
         ctx: &GpuContext,
         layouts: &PhongLayouts,
@@ -758,7 +758,7 @@ impl InstanceBuffer {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: label.map(|s| format!("{s}-InstanceBuffer")).as_deref(),
                 contents: bytemuck::cast_slice(&instances),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
         Self {
             buffer,
@@ -924,7 +924,7 @@ pub(super) struct ResourceStorage {
     tangent_buffers: Vec<TangentBuffer>,
     bi_tangent_buffers: Vec<BiTangentBuffer>,
     instance_buffers: Vec<InstanceBuffer>,
-    material_bindings: Vec<MaterialBindings>,
+    material_bindings: Vec<MaterialBindingGroup>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -987,7 +987,7 @@ impl ResourceStorage {
         &self.instance_buffers[index.0 as usize]
     }
 
-    pub fn get_material_binding(&self, index: MaterialBindingIndex) -> &MaterialBindings {
+    pub fn get_material_binding(&self, index: MaterialBindingIndex) -> &MaterialBindingGroup {
         &self.material_bindings[index.0 as usize]
     }
 
@@ -1092,7 +1092,7 @@ impl ResourceStorage {
     ) -> MaterialBindingIndex {
         let index = self.material_bindings.len();
         let index = MaterialBindingIndex(index as u32);
-        self.material_bindings.push(MaterialBindings::new(
+        self.material_bindings.push(MaterialBindingGroup::new(
             ctx,
             layouts,
             phong,
@@ -1104,10 +1104,22 @@ impl ResourceStorage {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum DrawType {
+    Render(PhongCapabilites),
+    Light,
+}
+
+impl PartialEq for DrawType {
+    fn eq(&self, other: &Self) -> bool {
+        core::mem::discriminant(self) == core::mem::discriminant(other)
+    }
+}
+
 #[derive(Debug)]
 pub struct DrawCall {
     pub material: MaterialBindingIndex,
-    pub caps_filter: PhongCapabilites,
+    pub draw_type: DrawType,
     pub instance: InstanceBufferIndex,
 
     // primitive data
@@ -1116,10 +1128,10 @@ pub struct DrawCall {
 
     // vertex data
     pub position: PositionBufferIndex,
-    pub tex_coord: TexCoordBufferIndex,
-    pub normal: NormalBufferIndex,
-    pub tangent: TangentBufferIndex,
-    pub bi_tangent: BiTangentBufferIndex,
+    pub tex_coord: Option<TexCoordBufferIndex>,
+    pub normal: Option<NormalBufferIndex>,
+    pub tangent: Option<TangentBufferIndex>,
+    pub bi_tangent: Option<BiTangentBufferIndex>,
 }
 
 pub struct DrawWorld {

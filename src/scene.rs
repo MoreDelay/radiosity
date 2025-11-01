@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::Arc};
 
 use nalgebra as na;
 use winit::window::Window;
@@ -19,6 +19,7 @@ pub struct SceneState {
     target_camera: camera::TargetCamera,
     first_person_camera: camera::FirstPersonCamera,
     light: light::Light,
+    light_instance_index: render::InstanceBufferIndex,
 }
 
 impl SceneState {
@@ -57,7 +58,7 @@ impl SceneState {
         let mut mtl_manager = model::parser::SimpleMtlManager::new(model_root.to_path_buf());
         let parsed_obj =
             model::parser::obj::load_obj(&model_path, &mut mtl_manager).expect("worked above");
-        let model_index = storage
+        let mesh_index = storage
             .borrow_mut()
             .store_obj(parsed_obj, mtl_manager.extract_list());
 
@@ -82,16 +83,33 @@ impl SceneState {
                 })
             })
             .collect::<Vec<_>>();
-        // let instances = vec![model::Instance {
-        //     position: na::Vector3::zeros(),
-        //     rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
-        // }];
 
         let instance_index = render_state
             .borrow_mut()
-            .add_instance_buffer(&instances, Some("Grid"));
+            .add_instance_buffer(&instances, Some("GridInstances"));
 
-        draw_manager.add_mesh(&storage.borrow(), model_index, instance_index, Some("Cube"));
+        draw_manager.add_mesh(
+            &storage.borrow(),
+            mesh_index,
+            instance_index,
+            manager::PipelineType::Render,
+            Some("User"),
+        );
+
+        // add dummy object for the light source
+        let light_mesh_index = Self::create_light_dummy(&mut storage.borrow_mut(), mesh_index);
+
+        let light_instance_index = render_state
+            .borrow_mut()
+            .add_instance_buffer(&[light.create_instance()], Some("LightInstance"));
+
+        draw_manager.add_mesh(
+            &storage.borrow(),
+            light_mesh_index,
+            light_instance_index,
+            manager::PipelineType::Light,
+            Some("Light"),
+        );
 
         SceneState {
             render_state,
@@ -105,7 +123,54 @@ impl SceneState {
             target_camera,
             first_person_camera,
             light,
+            light_instance_index,
         }
+    }
+
+    fn create_light_dummy(
+        storage: &mut model::Storage,
+        original: model::MeshIndex,
+    ) -> model::MeshIndex {
+        // create white material used for light mesh
+        let white = model::Color {
+            r: 1.,
+            g: 1.,
+            b: 1.,
+        };
+        let material = model::BlinnPhong {
+            ambient_base: white,
+            diffuse_base: white,
+            specular_base: white,
+            specular_exponent: 1.,
+            diffuse_map: None,
+        };
+        let material = model::Material {
+            data: model::MaterialType::BlinnPhong(material),
+            normal: None,
+        };
+        let material_index = storage.store_material(material);
+
+        // create actual light mesh using just position data
+        let mut light_mesh = storage.mesh(original).clone();
+        let mut scaled_positions = HashMap::new();
+
+        for primitive in light_mesh.primitives.iter_mut() {
+            let new_position = *scaled_positions
+                .entry(primitive.data.position)
+                .or_insert_with(|| {
+                    let mut buffer = storage.position_buffer(primitive.data.position).clone();
+                    for v in buffer.positions.iter_mut().flatten() {
+                        *v *= 0.3;
+                    }
+                    storage.store_position_buffer(buffer)
+                });
+            primitive.data.position = new_position;
+            primitive.material = material_index;
+            primitive.data.normal = None;
+            primitive.data.tex_coord = None;
+        }
+
+        storage.store_mesh(light_mesh)
     }
 
     pub fn resize_window(&mut self, new_size: Option<winit::dpi::PhysicalSize<u32>>) {
@@ -144,9 +209,10 @@ impl SceneState {
         self.last_time = std::time::Instant::now();
         let moved = self.light.step(epsilon);
         if moved {
-            self.render_state
-                .borrow_mut()
-                .update_light(&self.light.to_raw());
+            let render_state = self.render_state.borrow_mut();
+            render_state.update_light(&self.light.to_raw());
+            let new_instance = self.light.create_instance();
+            render_state.update_instance(self.light_instance_index, &[new_instance]);
         }
 
         if self.use_first_person_camera {

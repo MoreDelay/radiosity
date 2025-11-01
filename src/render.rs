@@ -1,4 +1,8 @@
-use std::{num::NonZeroU32, ops::Deref, sync::Arc};
+use std::{
+    num::{NonZeroU32, NonZeroU64},
+    ops::Deref,
+    sync::Arc,
+};
 
 use anyhow::Result;
 use winit::window::Window;
@@ -17,6 +21,7 @@ pub use raw::*;
 pub use resource::{
     BiTangentBufferIndex,
     DrawCall,
+    DrawType,
     DrawWorld,
     IndexBufferIndex,
     InstanceBufferIndex,
@@ -191,6 +196,20 @@ impl RenderState {
         }
     }
 
+    pub fn update_instance(&self, index: InstanceBufferIndex, data: &[model::Instance]) {
+        let instance = &self.model_resource_storage.get_instance_buffer(index);
+        assert_eq!(data.len(), instance.num_instances as usize);
+        let size = NonZeroU64::try_from(std::mem::size_of::<InstanceRaw>() as u64).unwrap();
+        let mut view = self
+            .ctx
+            .queue
+            .write_buffer_with(&instance.buffer, 0, size)
+            .unwrap();
+
+        let data = data.iter().map(|i| i.to_raw()).collect::<Vec<_>>();
+        view.copy_from_slice(bytemuck::cast_slice(&data));
+    }
+
     pub fn update_light(&self, data: &LightRaw) {
         self.light_binding.update(&self.ctx, data);
         self.shadow_binding.update(&self.ctx, data);
@@ -315,6 +334,7 @@ impl RenderState {
 
         #[derive(Debug, Copy, Clone)]
         struct DrawState {
+            draw_type: DrawType,
             material: MaterialBindingIndex,
             requirements: pipeline::PhongResourceRequirements,
         }
@@ -322,19 +342,30 @@ impl RenderState {
         for &index in sorted_draws.iter() {
             let draw = &draw_world.draw_calls[index as usize];
 
-            if draw_state.is_none_or(|state| state.material != draw.material) {
+            let pipeline = match draw.draw_type {
+                DrawType::Light => self.phong_pipelines.get_light(),
+                DrawType::Render(caps_filter) => {
+                    // get actual pipeline
+                    let material = self
+                        .model_resource_storage
+                        .get_material_binding(draw.material);
+                    let caps = PhongCapabilites {
+                        color_map: material.color.is_some() && caps_filter.color_map,
+                        normal_map: material.normal.is_some() && caps_filter.normal_map,
+                    };
+                    self.phong_pipelines.get_render(caps)
+                }
+            };
+            if draw_state.is_none_or(|state| {
+                state.material != draw.material || state.draw_type != draw.draw_type
+            }) {
+                render_pass.set_pipeline(pipeline);
+
                 let material = self
                     .model_resource_storage
                     .get_material_binding(draw.material);
-                let caps = PhongCapabilites {
-                    color_map: material.color.is_some() && draw.caps_filter.color_map,
-                    normal_map: material.normal.is_some() && draw.caps_filter.normal_map,
-                };
-                let pipeline = self.phong_pipelines.get_render(caps);
+
                 let reqs = pipeline.requirements();
-
-                render_pass.set_pipeline(pipeline);
-
                 if let Some(color_index) = reqs.bindings.color_texture {
                     let color_bind = material.color.as_ref().expect("checked above").deref();
                     render_pass.set_bind_group(color_index, color_bind, &[]);
@@ -347,10 +378,12 @@ impl RenderState {
                 render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
 
                 draw_state = Some(DrawState {
+                    draw_type: draw.draw_type,
                     material: draw.material,
                     requirements: reqs,
                 });
             }
+
             let reqs = draw_state.expect("set above").requirements;
 
             let index = self.model_resource_storage.index_buffer(draw.index);
@@ -367,24 +400,26 @@ impl RenderState {
             }
 
             if reqs.vertex.tex_coord.filled() {
-                let tex_coord = self.model_resource_storage.tex_coord_buffer(draw.tex_coord);
+                let tex_coord = draw.tex_coord.expect("required by chosen pipeline");
+                let tex_coord = self.model_resource_storage.tex_coord_buffer(tex_coord);
                 render_pass.set_vertex_buffer(next_slot(), tex_coord.buffer.slice(..));
             }
 
             if reqs.vertex.normal.filled() {
-                let normal = self.model_resource_storage.normal_buffer(draw.normal);
+                let normal = draw.normal.expect("required by chosen pipeline");
+                let normal = self.model_resource_storage.normal_buffer(normal);
                 render_pass.set_vertex_buffer(next_slot(), normal.buffer.slice(..));
             }
 
             if reqs.vertex.tangent.filled() {
-                let tangent = self.model_resource_storage.tangent_buffer(draw.tangent);
+                let tangent = draw.tangent.expect("required by chosen pipeline");
+                let tangent = self.model_resource_storage.tangent_buffer(tangent);
                 render_pass.set_vertex_buffer(next_slot(), tangent.buffer.slice(..));
             }
 
             if reqs.vertex.bi_tangent.filled() {
-                let bi_tangent = self
-                    .model_resource_storage
-                    .bi_tangent_buffer(draw.bi_tangent);
+                let bi_tangent = draw.bi_tangent.expect("required by chosen pipeline");
+                let bi_tangent = self.model_resource_storage.bi_tangent_buffer(bi_tangent);
                 render_pass.set_vertex_buffer(next_slot(), bi_tangent.buffer.slice(..));
             }
 
@@ -402,14 +437,6 @@ impl RenderState {
 
             render_pass.draw_indexed(draw.slice.clone(), 0, 0..instances);
         }
-
-        // // light pass
-        // if let Some(index) = light_mesh_index {
-        //     render_pass.set_pipeline(self.light_pipeline.deref());
-        //     let buffer = self.model_resource_storage.get_mesh_buffer(index);
-        //     render_pass.set_vertex_buffer(0, buffer.vertices.slice(..));
-        //     render_pass.draw_indexed(0..buffer.num_indices, 0, 0..1);
-        // }
 
         // render pass recording ends when dropped
         drop(render_pass);

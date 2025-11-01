@@ -41,6 +41,13 @@ impl Light {
         self.paused = !self.paused;
         self.paused
     }
+
+    pub fn create_instance(&self) -> model::Instance {
+        model::Instance {
+            position: self.pos,
+            rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
+        }
+    }
 }
 
 impl Light {

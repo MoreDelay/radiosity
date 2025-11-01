@@ -24,15 +24,16 @@ pub struct IndexBufferView {
     pub range: Range<u32>,
 }
 
-pub struct VertexBuffer {
-    pub vertices: Vec<[f32; 3]>,
+#[derive(Clone)]
+pub struct PositionBuffer {
+    pub positions: Vec<[f32; 3]>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct VertexBufferIndex(u32);
+pub struct PositionBufferIndex(u32);
 
 pub struct TexCoordBuffer {
-    pub vertices: Vec<[f32; 2]>,
+    pub tex_coords: Vec<[f32; 2]>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -111,7 +112,7 @@ pub struct Sampler {
 }
 
 impl Sampler {
-    pub fn to_desc<'a>(&self, label: Option<&'a str>) -> wgpu::SamplerDescriptor<'a> {
+    pub fn to_desc(self, label: Option<&str>) -> wgpu::SamplerDescriptor<'_> {
         wgpu::SamplerDescriptor {
             label,
             address_mode_u: self.wrap_s.into(),
@@ -183,21 +184,21 @@ pub enum Image {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ImageIndex(u32);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrimitiveData {
-    pub vertex: VertexBufferIndex,
+    pub position: PositionBufferIndex,
     pub normal: Option<(NormalBufferIndex, TangentBufferIndex)>,
     pub tex_coord: Option<TexCoordBufferIndex>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Primitive {
     pub data: PrimitiveData,
     pub indices: IndexBufferView,
     pub material: MaterialIndex,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Mesh {
     pub primitives: Vec<Primitive>,
 }
@@ -207,7 +208,7 @@ pub struct MeshIndex(u32);
 
 pub struct Storage {
     index_buffers: Vec<IndexBuffer>,
-    vertex_buffers: Vec<VertexBuffer>,
+    vertex_buffers: Vec<PositionBuffer>,
     tex_coord_buffers: Vec<TexCoordBuffer>,
     normal_buffers: Vec<NormalBuffer>,
     tangent_buffers: Vec<TangentBuffer>,
@@ -239,7 +240,7 @@ impl Storage {
         &self.index_buffers[index.0 as usize]
     }
 
-    pub fn vertex_buffer(&self, index: VertexBufferIndex) -> &VertexBuffer {
+    pub fn position_buffer(&self, index: PositionBufferIndex) -> &PositionBuffer {
         &self.vertex_buffers[index.0 as usize]
     }
 
@@ -303,7 +304,7 @@ impl Storage {
                 } = object;
 
                 let indices = self.store_index_buffer(index_buffer);
-                let vertex = self.store_vertex_buffer(vertex_buffer);
+                let vertex = self.store_position_buffer(vertex_buffer);
                 let tex_coord = tex_coord_buffer.map(|uv| self.store_tex_coord_buffer(uv));
                 let normal = self.store_normal_buffer(normal_buffer);
                 let tangent = self.store_tangent_buffer(tangent_buffer);
@@ -314,7 +315,7 @@ impl Storage {
                     .into_iter()
                     .map(|(mtl_index, face_range)| {
                         let data = PrimitiveData {
-                            vertex,
+                            position: vertex,
                             normal,
                             tex_coord,
                         };
@@ -443,8 +444,8 @@ impl Storage {
         index
     }
 
-    fn store_vertex_buffer(&mut self, buffer: VertexBuffer) -> VertexBufferIndex {
-        let index = VertexBufferIndex(self.vertex_buffers.len() as u32);
+    pub fn store_position_buffer(&mut self, buffer: PositionBuffer) -> PositionBufferIndex {
+        let index = PositionBufferIndex(self.vertex_buffers.len() as u32);
         self.vertex_buffers.push(buffer);
         index
     }
@@ -467,7 +468,7 @@ impl Storage {
         index
     }
 
-    fn store_material(&mut self, material: Material) -> MaterialIndex {
+    pub fn store_material(&mut self, material: Material) -> MaterialIndex {
         let index = MaterialIndex(self.materials.len() as u32);
         self.materials.push(material);
         index
@@ -485,7 +486,7 @@ impl Storage {
         index
     }
 
-    fn store_mesh(&mut self, mesh: Mesh) -> MeshIndex {
+    pub fn store_mesh(&mut self, mesh: Mesh) -> MeshIndex {
         let index = MeshIndex(self.meshes.len() as u32);
         self.meshes.push(mesh);
         index
@@ -548,7 +549,7 @@ pub struct Instance {
 
 pub struct MeshCombined {
     pub _name: Option<String>,
-    pub vertex_buffer: VertexBuffer,
+    pub vertex_buffer: PositionBuffer,
     pub tex_coord_buffer: Option<TexCoordBuffer>,
     pub materials: Vec<(Option<u32>, obj::FaceRange)>,
     pub normal_buffer_specified: Option<NormalBuffer>,
@@ -848,10 +849,12 @@ impl MeshCombined {
             }
         }
 
-        let new_vertices = VertexBuffer {
-            vertices: new_vertices,
+        let new_vertices = PositionBuffer {
+            positions: new_vertices,
         };
-        let new_tex = new_tex.map(|vertices| TexCoordBuffer { vertices });
+        let new_tex = new_tex.map(|vertices| TexCoordBuffer {
+            tex_coords: vertices,
+        });
 
         // make triangles out of polygons naively
         let mut mtl_iter = mtls.iter_mut();
@@ -927,12 +930,12 @@ impl MeshCombined {
 
     fn compute_normals(&self) -> ComputedNormals {
         let mut normals_computed = Vec::new();
-        normals_computed.resize_with(self.vertex_buffer.vertices.len(), na::Vector3::zeros);
+        normals_computed.resize_with(self.vertex_buffer.positions.len(), na::Vector3::zeros);
 
         for &[i0, i1, i2] in self.index_buffer.triangles.iter() {
-            let p0 = &self.vertex_buffer.vertices[i0 as usize];
-            let p1 = &self.vertex_buffer.vertices[i1 as usize];
-            let p2 = &self.vertex_buffer.vertices[i2 as usize];
+            let p0 = &self.vertex_buffer.positions[i0 as usize];
+            let p1 = &self.vertex_buffer.positions[i1 as usize];
+            let p2 = &self.vertex_buffer.positions[i2 as usize];
 
             let p0 = na::Vector3::from_column_slice(p0);
             let p1 = na::Vector3::from_column_slice(p1);

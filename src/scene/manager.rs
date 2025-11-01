@@ -18,10 +18,10 @@ pub struct IndexInfo {
 #[derive(Debug)]
 pub struct PrimitiveData {
     pub position: render::PositionBufferIndex,
-    pub tex_coord: render::TexCoordBufferIndex,
-    pub normal: render::NormalBufferIndex,
-    pub tangent: render::TangentBufferIndex,
-    pub bi_tangent: render::BiTangentBufferIndex,
+    pub tex_coord: Option<render::TexCoordBufferIndex>,
+    pub normal: Option<render::NormalBufferIndex>,
+    pub tangent: Option<render::TangentBufferIndex>,
+    pub bi_tangent: Option<render::BiTangentBufferIndex>,
 }
 
 #[derive(Debug)]
@@ -31,10 +31,18 @@ pub struct PrimitiveInfo {
     pub material: render::MaterialBindingIndex,
 }
 
+#[derive(Debug, Copy, Clone, Default)]
+pub enum PipelineType {
+    #[default]
+    Render,
+    Light,
+}
+
 #[derive(Debug)]
 pub struct MeshInfo {
     pub primitives: Vec<PrimitiveInfo>,
     pub instance: render::InstanceBufferIndex,
+    pub draw_type: PipelineType,
 }
 
 pub struct DrawManager {
@@ -43,7 +51,7 @@ pub struct DrawManager {
 
     // translations between model asset and render resource handles
     map_index: HashMap<model::IndexBufferIndex, render::IndexBufferIndex>,
-    map_position: HashMap<model::VertexBufferIndex, render::PositionBufferIndex>,
+    map_position: HashMap<model::PositionBufferIndex, render::PositionBufferIndex>,
     map_tex_coord: HashMap<model::TexCoordBufferIndex, render::TexCoordBufferIndex>,
     map_normal: HashMap<model::NormalBufferIndex, render::NormalBufferIndex>,
     map_tangent: HashMap<model::TangentBufferIndex, render::TangentBufferIndex>,
@@ -74,6 +82,7 @@ impl DrawManager {
         storage: &model::Storage,
         mesh_index: model::MeshIndex,
         instance: render::InstanceBufferIndex,
+        draw_type: PipelineType,
         label: Option<&str>,
     ) {
         let mut render_state = self.render_state.borrow_mut();
@@ -91,7 +100,7 @@ impl DrawManager {
                 } = p;
 
                 let model::PrimitiveData {
-                    vertex,
+                    position: vertex,
                     normal,
                     tex_coord,
                 } = data;
@@ -99,63 +108,69 @@ impl DrawManager {
                 let position = match self.map_position.entry(*vertex) {
                     hash_map::Entry::Occupied(entry) => *entry.get(),
                     hash_map::Entry::Vacant(entry) => {
-                        let data = &storage.vertex_buffer(*entry.key()).vertices;
+                        let data = &storage.position_buffer(*entry.key()).positions;
                         let data = bytemuck::cast_slice(data);
                         let index = render_state.upload_position_buffer(data, label);
                         *entry.insert(index)
                     }
                 };
 
-                let tex_coord = tex_coord.unwrap();
-                let tex_coord = match self.map_tex_coord.entry(tex_coord) {
-                    hash_map::Entry::Occupied(entry) => *entry.get(),
-                    hash_map::Entry::Vacant(entry) => {
-                        let data = &storage.tex_coord_buffer(*entry.key()).vertices;
-                        let data = bytemuck::cast_slice(data);
-                        let index = render_state.upload_tex_coord_buffer(data, label);
-                        *entry.insert(index)
-                    }
-                };
+                let tex_coord =
+                    tex_coord.map(|tex_coord| match self.map_tex_coord.entry(tex_coord) {
+                        hash_map::Entry::Occupied(entry) => *entry.get(),
+                        hash_map::Entry::Vacant(entry) => {
+                            let data = &storage.tex_coord_buffer(*entry.key()).tex_coords;
+                            let data = bytemuck::cast_slice(data);
+                            let index = render_state.upload_tex_coord_buffer(data, label);
+                            *entry.insert(index)
+                        }
+                    });
 
-                let (normal_index, tangent_index) = normal.unwrap();
-                let normal = match self.map_normal.entry(normal_index) {
-                    hash_map::Entry::Occupied(entry) => *entry.get(),
-                    hash_map::Entry::Vacant(entry) => {
-                        let data = &storage.normal_buffer(*entry.key()).normals;
-                        let data = bytemuck::cast_slice(data);
-                        let index = render_state.upload_normal_buffer(data, label);
-                        *entry.insert(index)
-                    }
-                };
-                let tangent = match self.map_tangent.entry(tangent_index) {
-                    hash_map::Entry::Occupied(entry) => *entry.get(),
-                    hash_map::Entry::Vacant(entry) => {
-                        let data = &storage.tangent_buffer(*entry.key()).tangents;
-                        let data = bytemuck::cast_slice(data);
-                        let index = render_state.upload_tangent_buffer(data, label);
-                        *entry.insert(index)
-                    }
-                };
-                let bi_tangent = match self.map_bi_tangent.entry((normal_index, tangent_index)) {
-                    hash_map::Entry::Occupied(entry) => *entry.get(),
-                    hash_map::Entry::Vacant(entry) => {
-                        let (n, t) = *entry.key();
-                        let n = storage.normal_buffer(n);
-                        let t = storage.tangent_buffer(t);
-                        let data = n
-                            .normals
-                            .iter()
-                            .zip(t.tangents.iter())
-                            .map(|(n, t)| {
-                                let n = na::Vector3::from_column_slice(n);
-                                let t = na::Vector3::from_column_slice(t);
-                                let b = na::Unit::new_normalize(n.cross(&t));
-                                [b[0], b[1], b[2]]
-                            })
-                            .collect::<Vec<_>>();
-                        let data = bytemuck::cast_slice(&data);
-                        let index = render_state.upload_bi_tangent_buffer(data, label);
-                        *entry.insert(index)
+                let (normal, tangent, bi_tangent) = match *normal {
+                    None => (None, None, None),
+                    Some((normal_index, tangent_index)) => {
+                        let normal = match self.map_normal.entry(normal_index) {
+                            hash_map::Entry::Occupied(entry) => *entry.get(),
+                            hash_map::Entry::Vacant(entry) => {
+                                let data = &storage.normal_buffer(*entry.key()).normals;
+                                let data = bytemuck::cast_slice(data);
+                                let index = render_state.upload_normal_buffer(data, label);
+                                *entry.insert(index)
+                            }
+                        };
+                        let tangent = match self.map_tangent.entry(tangent_index) {
+                            hash_map::Entry::Occupied(entry) => *entry.get(),
+                            hash_map::Entry::Vacant(entry) => {
+                                let data = &storage.tangent_buffer(*entry.key()).tangents;
+                                let data = bytemuck::cast_slice(data);
+                                let index = render_state.upload_tangent_buffer(data, label);
+                                *entry.insert(index)
+                            }
+                        };
+                        let bi_tangent =
+                            match self.map_bi_tangent.entry((normal_index, tangent_index)) {
+                                hash_map::Entry::Occupied(entry) => *entry.get(),
+                                hash_map::Entry::Vacant(entry) => {
+                                    let (n, t) = *entry.key();
+                                    let n = storage.normal_buffer(n);
+                                    let t = storage.tangent_buffer(t);
+                                    let data = n
+                                        .normals
+                                        .iter()
+                                        .zip(t.tangents.iter())
+                                        .map(|(n, t)| {
+                                            let n = na::Vector3::from_column_slice(n);
+                                            let t = na::Vector3::from_column_slice(t);
+                                            let b = na::Unit::new_normalize(n.cross(&t));
+                                            [b[0], b[1], b[2]]
+                                        })
+                                        .collect::<Vec<_>>();
+                                    let data = bytemuck::cast_slice(&data);
+                                    let index = render_state.upload_bi_tangent_buffer(data, label);
+                                    *entry.insert(index)
+                                }
+                            };
+                        (Some(normal), Some(tangent), Some(bi_tangent))
                     }
                 };
 
@@ -220,6 +235,7 @@ impl DrawManager {
         let mesh_info = MeshInfo {
             primitives,
             instance,
+            draw_type,
         };
         self.meshes.insert(mesh_index, mesh_info);
     }
@@ -243,9 +259,14 @@ impl DrawManager {
                         bi_tangent,
                     } = prim.data;
 
+                    let draw_type = match mesh.draw_type {
+                        PipelineType::Render => render::DrawType::Render(caps),
+                        PipelineType::Light => render::DrawType::Light,
+                    };
+
                     render::DrawCall {
                         material,
-                        caps_filter: caps,
+                        draw_type,
                         instance,
                         index,
                         slice,
