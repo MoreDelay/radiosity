@@ -106,6 +106,11 @@ impl TextureRaw {
             view_formats: &[],
         });
 
+        // assuming only uncompressed formats are used here
+        let texel_bytes = format
+            .block_copy_size(None)
+            .expect("assuming no complex texture format is used");
+
         // load image (on CPU) into texture (on GPU) by issuing command over queue
         ctx.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -117,7 +122,7 @@ impl TextureRaw {
             data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * size.width),
+                bytes_per_row: Some(texel_bytes * size.width),
                 rows_per_image: Some(size.height),
             },
             size,
