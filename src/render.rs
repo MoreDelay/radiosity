@@ -388,46 +388,43 @@ impl RenderState {
 
             let index = self.model_resource_storage.index_buffer(draw.index);
 
-            let mut vertex_slot = 0;
-            let mut next_slot = || {
-                vertex_slot += 1;
-                vertex_slot - 1
-            };
-
+            let mut slot_iter = (0..).into_iter();
             if reqs.vertex.position.filled() {
+                let slot = slot_iter.next().unwrap();
                 let position = self.model_resource_storage.position_buffer(draw.position);
-                render_pass.set_vertex_buffer(next_slot(), position.buffer.slice(..));
+                render_pass.set_vertex_buffer(slot, position.buffer.slice(..));
             }
-
             if reqs.vertex.tex_coord.filled() {
+                let slot = slot_iter.next().unwrap();
                 let tex_coord = draw.tex_coord.expect("required by chosen pipeline");
                 let tex_coord = self.model_resource_storage.tex_coord_buffer(tex_coord);
-                render_pass.set_vertex_buffer(next_slot(), tex_coord.buffer.slice(..));
+                render_pass.set_vertex_buffer(slot, tex_coord.buffer.slice(..));
             }
-
             if reqs.vertex.normal.filled() {
+                let slot = slot_iter.next().unwrap();
                 let normal = draw.normal.expect("required by chosen pipeline");
                 let normal = self.model_resource_storage.normal_buffer(normal);
-                render_pass.set_vertex_buffer(next_slot(), normal.buffer.slice(..));
+                render_pass.set_vertex_buffer(slot, normal.buffer.slice(..));
             }
-
             if reqs.vertex.tangent.filled() {
+                let slot = slot_iter.next().unwrap();
                 let tangent = draw.tangent.expect("required by chosen pipeline");
                 let tangent = self.model_resource_storage.tangent_buffer(tangent);
-                render_pass.set_vertex_buffer(next_slot(), tangent.buffer.slice(..));
+                render_pass.set_vertex_buffer(slot, tangent.buffer.slice(..));
             }
-
             if reqs.vertex.bi_tangent.filled() {
+                let slot = slot_iter.next().unwrap();
                 let bi_tangent = draw.bi_tangent.expect("required by chosen pipeline");
                 let bi_tangent = self.model_resource_storage.bi_tangent_buffer(bi_tangent);
-                render_pass.set_vertex_buffer(next_slot(), bi_tangent.buffer.slice(..));
+                render_pass.set_vertex_buffer(slot, bi_tangent.buffer.slice(..));
             }
 
             let instances = if reqs.vertex.instance.filled() {
+                let slot = slot_iter.next().unwrap();
                 let instance = self
                     .model_resource_storage
                     .get_instance_buffer(draw.instance);
-                render_pass.set_vertex_buffer(next_slot(), instance.buffer.slice(..));
+                render_pass.set_vertex_buffer(slot, instance.buffer.slice(..));
                 instance.num_instances
             } else {
                 1

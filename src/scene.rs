@@ -27,6 +27,7 @@ impl SceneState {
         let (ctx, target) = pollster::block_on(render::create_render_instance(window));
 
         let pos = 1f32 * na::Vector3::new(0.0, 4.0, 7.0);
+        // let pos = 10f32 * na::Vector3::new(0.0, 4.0, 7.0);
         let focus = na::Vector3::new(0.0, 0.0, 2.0);
         let distance = 1.;
         let frame = target.get_frame_dim();
@@ -83,6 +84,11 @@ impl SceneState {
                 })
             })
             .collect::<Vec<_>>();
+
+        // let instances = vec![model::Instance {
+        //     position: na::Vector3::zeros(),
+        //     rotation: na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), 0.),
+        // }];
 
         let instance_index = render_state
             .borrow_mut()

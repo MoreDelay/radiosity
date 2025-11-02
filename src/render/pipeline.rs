@@ -134,20 +134,16 @@ impl PhongPipeline {
         } = capabilities;
 
         let bindings = {
-            let mut slot_counter = 0;
-            let mut next_slot = || {
-                slot_counter += 1;
-                slot_counter - 1
-            };
+            let mut slot_iter = (0..).into_iter();
 
             PhongBindingRequirements {
-                camera: Some(next_slot()),
+                camera: Some(slot_iter.next().unwrap()),
                 shadow_transform: None,
-                light: Some(next_slot()),
-                phong: Some(next_slot()),
-                shadow_texture: Some(next_slot()),
-                color_texture: color_map.then(&mut next_slot),
-                normal_texture: normal_map.then(&mut next_slot),
+                light: Some(slot_iter.next().unwrap()),
+                phong: Some(slot_iter.next().unwrap()),
+                shadow_texture: Some(slot_iter.next().unwrap()),
+                color_texture: color_map.then(|| slot_iter.next().unwrap()),
+                normal_texture: normal_map.then(|| slot_iter.next().unwrap()),
             }
         };
 
@@ -350,17 +346,13 @@ impl LightPipeline {
         };
 
         let bindings = {
-            let mut slot_counter = 0;
-            let mut next_slot = || {
-                slot_counter += 1;
-                slot_counter - 1
-            };
+            let mut slot_iter = (0..).into_iter();
 
             PhongBindingRequirements {
-                camera: Some(next_slot()),
+                camera: Some(slot_iter.next().unwrap()),
                 shadow_transform: None,
                 light: None,
-                phong: Some(next_slot()),
+                phong: Some(slot_iter.next().unwrap()),
                 shadow_texture: None,
                 color_texture: None,
                 normal_texture: None,
