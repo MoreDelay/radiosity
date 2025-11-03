@@ -11,49 +11,40 @@ pub struct PhongCapabilites {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum VertexSlot {
-    Empty,
-    Filled,
-}
-
-impl VertexSlot {
-    pub const fn filled(self) -> bool {
-        matches!(self, Self::Filled)
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
 pub struct PhongVertexRequirements {
-    pub position: VertexSlot,
-    pub tex_coord: VertexSlot,
-    pub normal: VertexSlot,
-    pub tangent: VertexSlot,
-    pub bi_tangent: VertexSlot,
-    pub instance: VertexSlot,
+    pub position: Option<u32>,
+    pub tex_coord: Option<u32>,
+    pub normal: Option<u32>,
+    pub tangent: Option<u32>,
+    pub bi_tangent: Option<u32>,
+    pub instance: Option<u32>,
 }
 
 impl PhongVertexRequirements {
     fn create_vertex_layout(&self) -> Vec<wgpu::VertexBufferLayout<'static>> {
-        let mut layout = Vec::with_capacity(6);
-        if self.position.filled() {
-            layout.push(raw::position_desc());
+        let mut layout: Vec<(u32, wgpu::VertexBufferLayout)> = Vec::with_capacity(6);
+
+        if let Some(position) = self.position {
+            layout.push((position, raw::position_desc()));
         }
-        if self.tex_coord.filled() {
-            layout.push(raw::tex_coord_desc());
+        if let Some(tex_coord) = self.tex_coord {
+            layout.push((tex_coord, raw::tex_coord_desc()));
         }
-        if self.normal.filled() {
-            layout.push(raw::normal_desc());
+        if let Some(normal) = self.normal {
+            layout.push((normal, raw::normal_desc()));
         }
-        if self.tangent.filled() {
-            layout.push(raw::tangent_desc());
+        if let Some(tangent) = self.tangent {
+            layout.push((tangent, raw::tangent_desc()));
         }
-        if self.bi_tangent.filled() {
-            layout.push(raw::bitangent_desc());
+        if let Some(bi_tangent) = self.bi_tangent {
+            layout.push((bi_tangent, raw::bitangent_desc()));
         }
-        if self.instance.filled() {
-            layout.push(raw::InstanceRaw::desc());
+        if let Some(instance) = self.instance {
+            layout.push((instance, raw::InstanceRaw::desc()));
         }
-        layout
+
+        layout.sort_by_key(|(index, _)| *index);
+        layout.into_iter().map(|(_, layout)| layout).collect()
     }
 }
 
@@ -134,7 +125,7 @@ impl PhongPipeline {
         } = capabilities;
 
         let bindings = {
-            let mut slot_iter = (0..).into_iter();
+            let mut slot_iter = 0..;
 
             PhongBindingRequirements {
                 camera: Some(slot_iter.next().unwrap()),
@@ -147,16 +138,20 @@ impl PhongPipeline {
             }
         };
 
-        let vertex = PhongVertexRequirements {
-            position: VertexSlot::Filled,
-            tex_coord: match color_map || normal_map {
-                true => VertexSlot::Filled,
-                false => VertexSlot::Empty,
-            },
-            normal: VertexSlot::Filled,
-            tangent: VertexSlot::Filled,
-            bi_tangent: VertexSlot::Filled,
-            instance: VertexSlot::Filled,
+        let vertex = {
+            let mut slot_iter = 0..;
+
+            PhongVertexRequirements {
+                position: Some(slot_iter.next().unwrap()),
+                tex_coord: match color_map || normal_map {
+                    true => Some(slot_iter.next().unwrap()),
+                    false => None,
+                },
+                normal: Some(slot_iter.next().unwrap()),
+                tangent: Some(slot_iter.next().unwrap()),
+                bi_tangent: Some(slot_iter.next().unwrap()),
+                instance: Some(slot_iter.next().unwrap()),
+            }
         };
         let requirements = PhongResourceRequirements { vertex, bindings };
 
@@ -174,7 +169,7 @@ impl PhongPipeline {
             requirements.bindings.shadow_texture.unwrap() as f64,
         )];
 
-        if requirements.vertex.tex_coord.filled() {
+        if requirements.vertex.tex_coord.is_some() {
             features.push(("HAS_TEX_COORD", true));
         }
         if let Some(slot) = requirements.bindings.color_texture {
@@ -336,17 +331,21 @@ pub struct LightPipeline(pub PhongPipeline);
 
 impl LightPipeline {
     pub fn new(ctx: &GpuContext, target: &TargetContext, layouts: &PhongLayouts) -> Self {
-        let vertex = PhongVertexRequirements {
-            position: VertexSlot::Filled,
-            tex_coord: VertexSlot::Empty,
-            normal: VertexSlot::Empty,
-            tangent: VertexSlot::Empty,
-            bi_tangent: VertexSlot::Empty,
-            instance: VertexSlot::Filled,
+        let vertex = {
+            let mut slot_iter = 0..;
+
+            PhongVertexRequirements {
+                position: Some(slot_iter.next().unwrap()),
+                tex_coord: None,
+                normal: None,
+                tangent: None,
+                bi_tangent: None,
+                instance: Some(slot_iter.next().unwrap()),
+            }
         };
 
         let bindings = {
-            let mut slot_iter = (0..).into_iter();
+            let mut slot_iter = 0..;
 
             PhongBindingRequirements {
                 camera: Some(slot_iter.next().unwrap()),
@@ -438,12 +437,12 @@ impl LightPipeline {
     #[expect(unused)]
     pub fn requirements(&self) -> PhongResourceRequirements {
         let vertex = PhongVertexRequirements {
-            position: VertexSlot::Filled,
-            tex_coord: VertexSlot::Empty,
-            normal: VertexSlot::Empty,
-            tangent: VertexSlot::Empty,
-            bi_tangent: VertexSlot::Empty,
-            instance: VertexSlot::Filled,
+            position: Some(0),
+            tex_coord: None,
+            normal: None,
+            tangent: None,
+            bi_tangent: None,
+            instance: Some(1),
         };
         let bindings = PhongBindingRequirements {
             camera: Some(0),
@@ -541,12 +540,12 @@ impl ShadowPipeline {
     #[expect(unused)]
     pub fn requirements(&self) -> PhongResourceRequirements {
         let vertex = PhongVertexRequirements {
-            position: VertexSlot::Filled,
-            tex_coord: VertexSlot::Empty,
-            normal: VertexSlot::Empty,
-            tangent: VertexSlot::Empty,
-            bi_tangent: VertexSlot::Empty,
-            instance: VertexSlot::Filled,
+            position: Some(0),
+            tex_coord: None,
+            normal: None,
+            tangent: None,
+            bi_tangent: None,
+            instance: Some(1),
         };
         let bindings = PhongBindingRequirements {
             camera: None,
