@@ -147,50 +147,78 @@ fn normal_from_map(tex_coords: vec2<f32>) -> vec3<f32> {
     return tangent_normal;
 }
 
+fn phong_ambient() -> vec3<f32> {
+    let ambient_strength = 0.1;
+    let ambient_color = phong.ambient_color * light.color * ambient_strength;
+
+    return ambient_color;
+}
+
+fn phong_diffuse(
+    pos: vec3<f32>,
+    light_pos: vec3<f32>,
+    normal: vec3<f32>,
+    color: vec3<f32>,
+) -> vec3<f32> {
+    let light_dir = normalize(light_pos - pos);
+    let diffuse_strength = max(dot(normal, light_dir), 0.0);
+    let diffuse_color = color * phong.diffuse_color * light.color * diffuse_strength;
+
+    return diffuse_color;
+}
+
+fn phong_specular(
+    pos: vec3<f32>,
+    light_pos: vec3<f32>,
+    cam_pos: vec3<f32>,
+    normal: vec3<f32>
+) -> vec3<f32> {
+    let view_dir = normalize(cam_pos - pos);
+    let light_dir = normalize(light_pos - pos);
+    let half_dir = normalize(view_dir + light_dir);
+    let specular_strength = pow(max(dot(normal, half_dir), 0.0), phong.specular_exponent);
+    let specular_color = specular_strength * phong.specular_color * light.color;
+
+    return specular_color;
+}
+
+fn phong_model(in: VertexOutput, normal: vec3<f32>, color: vec3<f32>) -> vec3<f32> {
+    let pos = in.tangent_position;
+    let light_pos = in.tangent_light_position;
+    let cam_pos = in.tangent_view_position;
+
+    let ambient_color = phong_ambient();
+    let diffuse_color = phong_diffuse(pos, light_pos, normal, color);
+    let specular_color = phong_specular(pos, light_pos, cam_pos, normal);
+
+    @if(USE_SHADOW_MAP)
+    let in_light = is_in_light(in.world_position);
+    @if(!USE_SHADOW_MAP) // @else
+    let in_light = 1.;
+
+    return ambient_color + (diffuse_color + specular_color) * in_light;
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // get textured color
     @if(USE_COLOR_MAP && HAS_TEX_COORD)
     let object_color = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     @if(!(USE_COLOR_MAP && HAS_TEX_COORD)) // @else
     let object_color = vec4(1., 1., 1., 1.);
 
+    // get normal in tangent space
     @if(USE_NORMAL_MAP && HAS_TEX_COORD)
     let tangent_normal = normal_from_map(in.tex_coords);
     @if(!(USE_NORMAL_MAP && HAS_TEX_COORD)) // @else
     let tangent_normal = vec3(0., 0., 1.);
 
-    var result: vec3<f32>;
-
-
+    // compute phong color
     @if(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)
-    {
-        let ambient_strength = 0.1;
-        let ambient_color = phong.ambient_color * light.color * ambient_strength;
-
-        let light_dir = normalize(in.tangent_light_position - in.tangent_position);
-        let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
-        let diffuse_color = object_color.xyz * phong.diffuse_color * light.color * diffuse_strength;
-
-        let view_dir = normalize(in.tangent_view_position - in.tangent_position);
-        let half_dir = normalize(view_dir + light_dir);
-        let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), phong.specular_exponent);
-
-        let specular_color = specular_strength * phong.specular_color * light.color;
-
-        @if(USE_SHADOW_MAP)
-        {
-            let in_light = is_in_light(in.world_position);
-            result = ambient_color + (diffuse_color /* + specular_color */) * in_light;
-        }
-        @if(!USE_SHADOW_MAP) // @else
-        {
-            result = ambient_color + (diffuse_color /* + specular_color */);
-        }
-    }
+    let result = phong_model(in, tangent_normal, object_color.xyz);
     @if(!(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)) // @else
-    {
-        result = phong.ambient_color;
-    }
+    let result = phong.ambient_color;
+
     return vec4<f32>(result, 1.);
 }
 
