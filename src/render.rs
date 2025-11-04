@@ -279,6 +279,9 @@ impl RenderState {
 
             for &index in sorted_draws.iter() {
                 let draw = &draw_world.draw_calls[index as usize];
+                if let DrawType::Light = draw.draw_type {
+                    continue;
+                }
 
                 let index = self.model_resource_storage.index_buffer(draw.index);
                 let position = self.model_resource_storage.position_buffer(draw.position);
