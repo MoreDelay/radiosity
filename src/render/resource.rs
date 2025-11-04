@@ -269,7 +269,7 @@ impl Deref for NormalBinding {
 }
 
 pub struct MaterialBindingGroup {
-    pub phong_binding: PhongBinding,
+    pub phong: PhongBinding,
     pub color: Option<ColorBinding>,
     pub normal: Option<NormalBinding>,
 }
@@ -332,10 +332,10 @@ impl MaterialBindingGroup {
         });
 
         let phong_label = label.map(|s| format!("{s}-PhongMaterial"));
-        let phong_binding = PhongBinding::new(ctx, layouts, phong, phong_label.as_deref());
+        let phong = PhongBinding::new(ctx, layouts, phong, phong_label.as_deref());
 
         Self {
-            phong_binding,
+            phong,
             color,
             normal,
         }

@@ -400,8 +400,8 @@ impl Storage {
                 };
                 let specular_base = Color {
                     r: ks.0,
-                    g: kd.1,
-                    b: kd.2,
+                    g: ks.1,
+                    b: ks.2,
                 };
                 let specular_exponent = ns.0;
 

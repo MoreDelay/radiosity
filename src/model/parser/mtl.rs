@@ -109,6 +109,7 @@ pub struct MtlMapBump(pub PathBuf);
 #[derive(Debug, Clone)]
 pub struct MtlMapKd(pub PathBuf);
 
+#[derive(Debug)]
 pub struct ParsedMtl {
     pub name: String,
     pub ka: Option<MtlKa>,

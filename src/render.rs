@@ -378,7 +378,7 @@ impl RenderState {
                     render_pass.set_bind_group(normal_index, normal_bind, &[]);
                 }
 
-                render_pass.set_bind_group(2, &material.phong_binding.bind_group, &[]);
+                render_pass.set_bind_group(2, &material.phong.bind_group, &[]);
 
                 draw_state = Some(DrawState {
                     draw_type: draw.draw_type,
