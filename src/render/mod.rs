@@ -7,30 +7,16 @@ use std::{
 use anyhow::Result;
 use winit::window::Window;
 
-use crate::{
-    camera, model,
-    render::resource::{ResourceStorage, TextureDims},
-};
+use crate::{camera, model, render::resource::TextureDims};
 
+mod mesh;
 mod pipeline;
 mod raw;
 mod resource;
 
 pub use pipeline::PhongCapabilites;
 pub use raw::*;
-pub use resource::{
-    BiTangentBufferIndex,
-    DrawCall,
-    DrawType,
-    DrawWorld,
-    IndexBufferIndex,
-    InstanceBufferIndex,
-    MaterialBindingIndex,
-    NormalBufferIndex,
-    PositionBufferIndex,
-    TangentBufferIndex,
-    TexCoordBufferIndex, //
-};
+pub use resource::{DrawCall, DrawType, DrawWorld};
 
 const SHADER_ROOT: &str = "src/shaders";
 
@@ -137,8 +123,8 @@ impl RenderState {
     pub fn create(
         ctx: GpuContext,
         target: TargetContext,
-        camera: &CameraRaw,
-        light: &LightRaw,
+        camera: &raw::CameraRaw,
+        light: &raw::LightRaw,
     ) -> anyhow::Result<Self> {
         let depth_dims = TextureDims {
             width: NonZeroU32::new(target.config.width.max(1)).unwrap(),
@@ -199,7 +185,7 @@ impl RenderState {
     pub fn update_instance(&self, index: InstanceBufferIndex, data: &[model::Instance]) {
         let instance = &self.model_resource_storage.get_instance_buffer(index);
         assert_eq!(data.len(), instance.num_instances as usize);
-        let size = NonZeroU64::try_from(std::mem::size_of::<InstanceRaw>() as u64).unwrap();
+        let size = NonZeroU64::try_from(std::mem::size_of::<raw::InstanceRaw>() as u64).unwrap();
         let mut view = self
             .ctx
             .queue
@@ -210,12 +196,12 @@ impl RenderState {
         view.copy_from_slice(bytemuck::cast_slice(&data));
     }
 
-    pub fn update_light(&self, data: &LightRaw) {
+    pub fn update_light(&self, data: &raw::LightRaw) {
         self.light_binding.update(&self.ctx, data);
         self.shadow_binding.update(&self.ctx, data);
     }
 
-    pub fn update_camera(&self, data: &CameraRaw) {
+    pub fn update_camera(&self, data: &raw::CameraRaw) {
         self.camera_binding.update(&self.ctx, data);
     }
 
@@ -352,7 +338,7 @@ impl RenderState {
                     let material = self
                         .model_resource_storage
                         .get_material_binding(draw.material);
-                    let caps = PhongCapabilites {
+                    let caps = pipeline::PhongCapabilites {
                         color_map: material.color.is_some() && caps_filter.color_map,
                         normal_map: material.normal.is_some() && caps_filter.normal_map,
                     };
@@ -442,9 +428,9 @@ impl RenderState {
 
     pub fn upload_index_buffer(
         &mut self,
-        data: &[u32],
+        data: &[[u32; 3]],
         label: Option<&str>,
-    ) -> resource::IndexBufferIndex {
+    ) -> IndexBufferIndex {
         self.model_resource_storage
             .upload_index_buffer(&self.ctx, data, label)
     }
@@ -453,7 +439,7 @@ impl RenderState {
         &mut self,
         data: &[f32],
         label: Option<&str>,
-    ) -> resource::PositionBufferIndex {
+    ) -> PositionBufferIndex {
         self.model_resource_storage
             .upload_position_buffer(&self.ctx, data, label)
     }
@@ -462,16 +448,12 @@ impl RenderState {
         &mut self,
         data: &[f32],
         label: Option<&str>,
-    ) -> resource::TexCoordBufferIndex {
+    ) -> TexCoordBufferIndex {
         self.model_resource_storage
             .upload_tex_coord_buffer(&self.ctx, data, label)
     }
 
-    pub fn upload_normal_buffer(
-        &mut self,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> resource::NormalBufferIndex {
+    pub fn upload_normal_buffer(&mut self, data: &[f32], label: Option<&str>) -> NormalBufferIndex {
         self.model_resource_storage
             .upload_normal_buffer(&self.ctx, data, label)
     }
@@ -480,7 +462,7 @@ impl RenderState {
         &mut self,
         data: &[f32],
         label: Option<&str>,
-    ) -> resource::TangentBufferIndex {
+    ) -> TangentBufferIndex {
         self.model_resource_storage
             .upload_tangent_buffer(&self.ctx, data, label)
     }
@@ -489,16 +471,16 @@ impl RenderState {
         &mut self,
         data: &[f32],
         label: Option<&str>,
-    ) -> resource::BiTangentBufferIndex {
+    ) -> BiTangentBufferIndex {
         self.model_resource_storage
             .upload_bi_tangent_buffer(&self.ctx, data, label)
     }
 
     pub fn add_material(
         &mut self,
-        phong: &PhongRaw,
-        color: Option<&TextureRaw>,
-        normal: Option<&TextureRaw>,
+        phong: &raw::PhongRaw,
+        color: Option<&raw::TextureRaw>,
+        normal: Option<&raw::TextureRaw>,
         label: Option<&str>,
     ) -> MaterialBindingIndex {
         self.model_resource_storage.upload_material(
@@ -518,5 +500,195 @@ impl RenderState {
     ) -> InstanceBufferIndex {
         self.model_resource_storage
             .upload_instance(&self.ctx, instances, label)
+    }
+}
+
+pub(super) struct ResourceStorage {
+    index_buffers: Vec<mesh::IndexBuffer>,
+    position_buffers: Vec<mesh::PositionBuffer>,
+    tex_coord_buffers: Vec<mesh::TexCoordsBuffer>,
+    normal_buffers: Vec<mesh::NormalBuffer>,
+    tangent_buffers: Vec<mesh::TangentBuffer>,
+    bi_tangent_buffers: Vec<mesh::BiTangentBuffer>,
+    instance_buffers: Vec<mesh::InstanceBuffer>,
+    material_bindings: Vec<resource::MaterialBindingGroup>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IndexBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PositionBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TexCoordBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NormalBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TangentBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BiTangentBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstanceBufferIndex(u32);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MaterialBindingIndex(u32);
+
+impl ResourceStorage {
+    pub fn new() -> Self {
+        Self {
+            index_buffers: Vec::new(),
+            position_buffers: Vec::new(),
+            tex_coord_buffers: Vec::new(),
+            normal_buffers: Vec::new(),
+            tangent_buffers: Vec::new(),
+            bi_tangent_buffers: Vec::new(),
+            // mesh_buffers: Vec::new(),
+            instance_buffers: Vec::new(),
+            material_bindings: Vec::new(),
+        }
+    }
+
+    fn index_buffer(&self, index: IndexBufferIndex) -> &mesh::IndexBuffer {
+        &self.index_buffers[index.0 as usize]
+    }
+
+    fn position_buffer(&self, index: PositionBufferIndex) -> &mesh::PositionBuffer {
+        &self.position_buffers[index.0 as usize]
+    }
+
+    fn tex_coord_buffer(&self, index: TexCoordBufferIndex) -> &mesh::TexCoordsBuffer {
+        &self.tex_coord_buffers[index.0 as usize]
+    }
+
+    fn normal_buffer(&self, index: NormalBufferIndex) -> &mesh::NormalBuffer {
+        &self.normal_buffers[index.0 as usize]
+    }
+
+    fn tangent_buffer(&self, index: TangentBufferIndex) -> &mesh::TangentBuffer {
+        &self.tangent_buffers[index.0 as usize]
+    }
+
+    fn bi_tangent_buffer(&self, index: BiTangentBufferIndex) -> &mesh::BiTangentBuffer {
+        &self.bi_tangent_buffers[index.0 as usize]
+    }
+
+    fn get_instance_buffer(&self, index: InstanceBufferIndex) -> &mesh::InstanceBuffer {
+        &self.instance_buffers[index.0 as usize]
+    }
+
+    fn get_material_binding(&self, index: MaterialBindingIndex) -> &resource::MaterialBindingGroup {
+        &self.material_bindings[index.0 as usize]
+    }
+
+    fn upload_index_buffer(
+        &mut self,
+        ctx: &GpuContext,
+        data: &[[u32; 3]],
+        label: Option<&str>,
+    ) -> IndexBufferIndex {
+        let index = self.index_buffers.len();
+        let index = IndexBufferIndex(index as u32);
+        self.index_buffers
+            .push(mesh::IndexBuffer::new(ctx, data, label));
+        index
+    }
+
+    fn upload_position_buffer(
+        &mut self,
+        ctx: &GpuContext,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> PositionBufferIndex {
+        let index = self.position_buffers.len();
+        let index = PositionBufferIndex(index as u32);
+        self.position_buffers
+            .push(mesh::PositionBuffer::new(ctx, data, label));
+        index
+    }
+
+    fn upload_tex_coord_buffer(
+        &mut self,
+        ctx: &GpuContext,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> TexCoordBufferIndex {
+        let index = self.tex_coord_buffers.len();
+        let index = TexCoordBufferIndex(index as u32);
+        self.tex_coord_buffers
+            .push(mesh::TexCoordsBuffer::new(ctx, data, label));
+        index
+    }
+
+    fn upload_normal_buffer(
+        &mut self,
+        ctx: &GpuContext,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> NormalBufferIndex {
+        let index = self.normal_buffers.len();
+        let index = NormalBufferIndex(index as u32);
+        self.normal_buffers
+            .push(mesh::NormalBuffer::new(ctx, data, label));
+        index
+    }
+
+    fn upload_tangent_buffer(
+        &mut self,
+        ctx: &GpuContext,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> TangentBufferIndex {
+        let index = self.tangent_buffers.len();
+        let index = TangentBufferIndex(index as u32);
+        self.tangent_buffers
+            .push(mesh::TangentBuffer::new(ctx, data, label));
+        index
+    }
+
+    fn upload_bi_tangent_buffer(
+        &mut self,
+        ctx: &GpuContext,
+        data: &[f32],
+        label: Option<&str>,
+    ) -> BiTangentBufferIndex {
+        let index = self.bi_tangent_buffers.len();
+        let index = BiTangentBufferIndex(index as u32);
+        self.bi_tangent_buffers
+            .push(mesh::BiTangentBuffer::new(ctx, data, label));
+        index
+    }
+
+    fn upload_instance(
+        &mut self,
+        ctx: &GpuContext,
+        instances: &[model::Instance],
+        label: Option<&str>,
+    ) -> InstanceBufferIndex {
+        let index = self.instance_buffers.len();
+        let index = InstanceBufferIndex(index as u32);
+        self.instance_buffers
+            .push(mesh::InstanceBuffer::new(ctx, instances, label));
+        index
+    }
+
+    fn upload_material(
+        &mut self,
+        ctx: &GpuContext,
+        layouts: &resource::PhongLayouts,
+        phong: &raw::PhongRaw,
+        color_texture: Option<&raw::TextureRaw>,
+        normal_texture: Option<&raw::TextureRaw>,
+        label: Option<&str>,
+    ) -> MaterialBindingIndex {
+        let index = self.material_bindings.len();
+        let index = MaterialBindingIndex(index as u32);
+        self.material_bindings
+            .push(resource::MaterialBindingGroup::new(
+                ctx,
+                layouts,
+                phong,
+                color_texture,
+                normal_texture,
+                label,
+            ));
+        index
     }
 }

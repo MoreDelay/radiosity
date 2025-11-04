@@ -185,14 +185,8 @@ impl DrawManager {
                 let index = match self.map_index.entry(indices.buffer) {
                     hash_map::Entry::Occupied(entry) => *entry.get(),
                     hash_map::Entry::Vacant(entry) => {
-                        let data = storage
-                            .index_buffer(*entry.key())
-                            .triangles
-                            .iter()
-                            .flatten()
-                            .copied()
-                            .collect::<Vec<_>>();
-                        let index = render_state.upload_index_buffer(&data, label);
+                        let data = &storage.index_buffer(*entry.key()).triangles;
+                        let index = render_state.upload_index_buffer(data, label);
                         *entry.insert(index)
                     }
                 };

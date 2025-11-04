@@ -8,9 +8,8 @@ use nalgebra as na;
 
 use static_assertions::const_assert_ne;
 use wgpu::util::DeviceExt;
-use zerocopy::IntoBytes;
 
-use crate::{model, render::pipeline::PhongCapabilites};
+use crate::render::pipeline;
 
 use super::{CameraRaw, GpuContext, LightRaw, PhongRaw, TextureRaw};
 
@@ -739,374 +738,9 @@ impl ShadowBindings {
     }
 }
 
-// 3D model resources
-pub struct InstanceBuffer {
-    pub buffer: wgpu::Buffer,
-    pub num_instances: u32,
-}
-
-impl InstanceBuffer {
-    pub fn new(ctx: &GpuContext, instances: &[model::Instance], label: Option<&str>) -> Self {
-        let instances = instances
-            .iter()
-            .map(|instance| instance.to_raw())
-            .collect::<Vec<_>>();
-        let num_instances = instances.len() as u32;
-
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: label.map(|s| format!("{s}-InstanceBuffer")).as_deref(),
-                contents: bytemuck::cast_slice(&instances),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
-        Self {
-            buffer,
-            num_instances,
-        }
-    }
-}
-
-pub(super) struct IndexBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl IndexBuffer {
-    fn new(ctx: &GpuContext, data: &[u32], label: Option<&str>) -> Self {
-        let count = data.len() as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: label.map(|s| format!("{s}-IndexBuffer")).as_deref(),
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}
-
-pub(super) struct PositionBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl PositionBuffer {
-    fn new(ctx: &GpuContext, data: &[f32], label: Option<&str>) -> Self {
-        assert!(
-            data.len().is_multiple_of(3),
-            "position buffer has wrong size"
-        );
-        let count = (data.len() / 3) as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}
-
-pub(super) struct TexCoordsBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl TexCoordsBuffer {
-    fn new(ctx: &GpuContext, data: &[f32], label: Option<&str>) -> Self {
-        assert!(
-            data.len().is_multiple_of(2),
-            "tex coords buffer has wrong size"
-        );
-        let count = (data.len() / 2) as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}
-
-pub(super) struct NormalBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl NormalBuffer {
-    fn new(ctx: &GpuContext, data: &[f32], label: Option<&str>) -> Self {
-        assert!(data.len().is_multiple_of(3), "normal buffer has wrong size");
-        let count = (data.len() / 2) as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}
-
-pub(super) struct TangentBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl TangentBuffer {
-    fn new(ctx: &GpuContext, data: &[f32], label: Option<&str>) -> Self {
-        assert!(
-            data.len().is_multiple_of(3),
-            "tangent buffer has wrong size"
-        );
-        let count = (data.len() / 2) as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}
-
-pub(super) struct BiTangentBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl BiTangentBuffer {
-    fn new(ctx: &GpuContext, data: &[f32], label: Option<&str>) -> Self {
-        assert!(
-            data.len().is_multiple_of(3),
-            "tangent buffer has wrong size"
-        );
-        let count = (data.len() / 2) as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}
-
-pub(super) struct ResourceStorage {
-    index_buffers: Vec<IndexBuffer>,
-    position_buffers: Vec<PositionBuffer>,
-    tex_coord_buffers: Vec<TexCoordsBuffer>,
-    normal_buffers: Vec<NormalBuffer>,
-    tangent_buffers: Vec<TangentBuffer>,
-    bi_tangent_buffers: Vec<BiTangentBuffer>,
-    instance_buffers: Vec<InstanceBuffer>,
-    material_bindings: Vec<MaterialBindingGroup>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct IndexBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PositionBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TexCoordBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NormalBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TangentBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BiTangentBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InstanceBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MaterialBindingIndex(u32);
-
-impl ResourceStorage {
-    pub fn new() -> Self {
-        Self {
-            index_buffers: Vec::new(),
-            position_buffers: Vec::new(),
-            tex_coord_buffers: Vec::new(),
-            normal_buffers: Vec::new(),
-            tangent_buffers: Vec::new(),
-            bi_tangent_buffers: Vec::new(),
-            // mesh_buffers: Vec::new(),
-            instance_buffers: Vec::new(),
-            material_bindings: Vec::new(),
-        }
-    }
-
-    pub fn index_buffer(&self, index: IndexBufferIndex) -> &IndexBuffer {
-        &self.index_buffers[index.0 as usize]
-    }
-
-    pub fn position_buffer(&self, index: PositionBufferIndex) -> &PositionBuffer {
-        &self.position_buffers[index.0 as usize]
-    }
-
-    pub fn tex_coord_buffer(&self, index: TexCoordBufferIndex) -> &TexCoordsBuffer {
-        &self.tex_coord_buffers[index.0 as usize]
-    }
-
-    pub fn normal_buffer(&self, index: NormalBufferIndex) -> &NormalBuffer {
-        &self.normal_buffers[index.0 as usize]
-    }
-
-    pub fn tangent_buffer(&self, index: TangentBufferIndex) -> &TangentBuffer {
-        &self.tangent_buffers[index.0 as usize]
-    }
-
-    pub fn bi_tangent_buffer(&self, index: BiTangentBufferIndex) -> &BiTangentBuffer {
-        &self.bi_tangent_buffers[index.0 as usize]
-    }
-
-    pub fn get_instance_buffer(&self, index: InstanceBufferIndex) -> &InstanceBuffer {
-        &self.instance_buffers[index.0 as usize]
-    }
-
-    pub fn get_material_binding(&self, index: MaterialBindingIndex) -> &MaterialBindingGroup {
-        &self.material_bindings[index.0 as usize]
-    }
-
-    pub fn upload_index_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[u32],
-        label: Option<&str>,
-    ) -> IndexBufferIndex {
-        let index = self.index_buffers.len();
-        let index = IndexBufferIndex(index as u32);
-        self.index_buffers.push(IndexBuffer::new(ctx, data, label));
-        index
-    }
-
-    pub fn upload_position_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> PositionBufferIndex {
-        let index = self.position_buffers.len();
-        let index = PositionBufferIndex(index as u32);
-        self.position_buffers
-            .push(PositionBuffer::new(ctx, data, label));
-        index
-    }
-
-    pub fn upload_tex_coord_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> TexCoordBufferIndex {
-        let index = self.tex_coord_buffers.len();
-        let index = TexCoordBufferIndex(index as u32);
-        self.tex_coord_buffers
-            .push(TexCoordsBuffer::new(ctx, data, label));
-        index
-    }
-
-    pub fn upload_normal_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> NormalBufferIndex {
-        let index = self.normal_buffers.len();
-        let index = NormalBufferIndex(index as u32);
-        self.normal_buffers
-            .push(NormalBuffer::new(ctx, data, label));
-        index
-    }
-
-    pub fn upload_tangent_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> TangentBufferIndex {
-        let index = self.tangent_buffers.len();
-        let index = TangentBufferIndex(index as u32);
-        self.tangent_buffers
-            .push(TangentBuffer::new(ctx, data, label));
-        index
-    }
-
-    pub fn upload_bi_tangent_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> BiTangentBufferIndex {
-        let index = self.bi_tangent_buffers.len();
-        let index = BiTangentBufferIndex(index as u32);
-        self.bi_tangent_buffers
-            .push(BiTangentBuffer::new(ctx, data, label));
-        index
-    }
-
-    pub fn upload_instance(
-        &mut self,
-        ctx: &GpuContext,
-        instances: &[model::Instance],
-        label: Option<&str>,
-    ) -> InstanceBufferIndex {
-        let index = self.instance_buffers.len();
-        let index = InstanceBufferIndex(index as u32);
-        self.instance_buffers
-            .push(InstanceBuffer::new(ctx, instances, label));
-        index
-    }
-
-    pub fn upload_material(
-        &mut self,
-        ctx: &GpuContext,
-        layouts: &PhongLayouts,
-        phong: &PhongRaw,
-        color_texture: Option<&TextureRaw>,
-        normal_texture: Option<&TextureRaw>,
-        label: Option<&str>,
-    ) -> MaterialBindingIndex {
-        let index = self.material_bindings.len();
-        let index = MaterialBindingIndex(index as u32);
-        self.material_bindings.push(MaterialBindingGroup::new(
-            ctx,
-            layouts,
-            phong,
-            color_texture,
-            normal_texture,
-            label,
-        ));
-        index
-    }
-}
-
 #[derive(Debug, Copy, Clone)]
 pub enum DrawType {
-    Render(PhongCapabilites),
+    Render(pipeline::PhongCapabilites),
     Light,
 }
 
@@ -1118,20 +752,20 @@ impl PartialEq for DrawType {
 
 #[derive(Debug)]
 pub struct DrawCall {
-    pub material: MaterialBindingIndex,
+    pub material: super::MaterialBindingIndex,
     pub draw_type: DrawType,
-    pub instance: InstanceBufferIndex,
+    pub instance: super::InstanceBufferIndex,
 
     // primitive data
-    pub index: IndexBufferIndex,
+    pub index: super::IndexBufferIndex,
     pub slice: std::ops::Range<u32>,
 
     // vertex data
-    pub position: PositionBufferIndex,
-    pub tex_coord: Option<TexCoordBufferIndex>,
-    pub normal: Option<NormalBufferIndex>,
-    pub tangent: Option<TangentBufferIndex>,
-    pub bi_tangent: Option<BiTangentBufferIndex>,
+    pub position: super::PositionBufferIndex,
+    pub tex_coord: Option<super::TexCoordBufferIndex>,
+    pub normal: Option<super::NormalBufferIndex>,
+    pub tangent: Option<super::TangentBufferIndex>,
+    pub bi_tangent: Option<super::BiTangentBufferIndex>,
 }
 
 pub struct DrawWorld {
@@ -1141,7 +775,7 @@ pub struct DrawWorld {
 impl DrawWorld {
     // Use bucket sort / counting sort to issue draw calls with shared resources (currently only
     // material). Relies on resource indices to be unique per resource to act as sort key.
-    pub(super) fn sort(&self, storage: &ResourceStorage) -> Vec<u32> {
+    pub(super) fn sort(&self, storage: &super::ResourceStorage) -> Vec<u32> {
         let n_elements = self.draw_calls.len();
         let n_buckets = storage.material_bindings.len();
         let mut bucket_sizes = vec![0; n_buckets];
