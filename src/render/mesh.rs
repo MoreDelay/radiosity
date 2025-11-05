@@ -164,29 +164,3 @@ impl TangentBuffer {
         }
     }
 }
-
-pub(super) struct BiTangentBuffer {
-    pub buffer: wgpu::Buffer,
-    pub _count: u32,
-}
-
-impl BiTangentBuffer {
-    pub fn new(ctx: &render::GpuContext, data: &[f32], label: Option<&str>) -> Self {
-        assert!(
-            data.len().is_multiple_of(3),
-            "tangent buffer has wrong size"
-        );
-        let count = (data.len() / 2) as u32;
-        let buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label,
-                contents: data.as_bytes(),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        Self {
-            buffer,
-            _count: count,
-        }
-    }
-}

@@ -966,8 +966,6 @@ impl Instance {
     pub fn to_raw(self) -> render::InstanceRaw {
         let model = na::Translation::from(self.position) * self.rotation;
         let model = model.to_matrix().into();
-        let normal = *self.rotation.to_rotation_matrix().matrix();
-        let normal = normal.into();
-        render::InstanceRaw { model, normal }
+        render::InstanceRaw { model }
     }
 }

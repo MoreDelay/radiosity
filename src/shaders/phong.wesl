@@ -6,8 +6,6 @@ struct VertexInput {
     @location(2) normal: vec3<f32>,
     @if(HAS_TANGENT)
     @location(3) tangent: vec3<f32>,
-    @if(HAS_BI_TANGENT)
-    @location(4) bitangent: vec3<f32>,
 }
 
 struct InstanceInput {
@@ -15,9 +13,6 @@ struct InstanceInput {
     @location(6) model_matrix_1: vec4<f32>,
     @location(7) model_matrix_2: vec4<f32>,
     @location(8) model_matrix_3: vec4<f32>,
-    @location(9) normal_matrix_0: vec3<f32>,
-    @location(10) normal_matrix_1: vec3<f32>,
-    @location(11) normal_matrix_2: vec3<f32>,
 }
 
 struct VertexOutput {
@@ -25,11 +20,11 @@ struct VertexOutput {
     @location(0) world_position: vec3<f32>,
     @if(HAS_TEX_COORD)
     @location(1) tex_coords: vec2<f32>,
-    @if(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)
+    @if(HAS_NORMAL && HAS_TANGENT)
     @location(2) tangent_position: vec3<f32>,
-    @if(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)
+    @if(HAS_NORMAL && HAS_TANGENT)
     @location(3) tangent_light_position: vec3<f32>,
-    @if(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)
+    @if(HAS_NORMAL && HAS_TANGENT)
     @location(4) tangent_view_position: vec3<f32>,
 }
 
@@ -85,6 +80,10 @@ var t_normal: texture_2d<f32>;
 var s_normal: sampler;
 
 
+fn compute_bi_tangent(normal: vec3<f32>, tangent: vec3<f32>) -> vec3<f32> {
+    return normalize(cross(normal, tangent));
+}
+
 @vertex
 fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
     // var: mutable, but need type specified
@@ -97,9 +96,9 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
         instance.model_matrix_3,
     );
     let normal_matrix = mat3x3<f32>(
-        instance.normal_matrix_0,
-        instance.normal_matrix_1,
-        instance.normal_matrix_2,
+        instance.model_matrix_0.xyz,
+        instance.model_matrix_1.xyz,
+        instance.model_matrix_2.xyz,
     );
 
 
@@ -112,11 +111,13 @@ fn vs_main(model: VertexInput, instance: InstanceInput) -> VertexOutput {
         out.tex_coords = model.tex_coords;
     }
 
-    @if(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)
+    @if(HAS_NORMAL && HAS_TANGENT)
     {
+        let bitangent = compute_bi_tangent(model.normal, model.tangent);
+
         let world_normal = normalize(normal_matrix * model.normal);
         let world_tangent = normalize(normal_matrix * model.tangent);
-        let world_bitangent = normalize(normal_matrix * model.bitangent);
+        let world_bitangent = normalize(normal_matrix * bitangent);
         let tangent_matrix = transpose(mat3x3<f32>(
             world_tangent,
             world_bitangent,
@@ -214,9 +215,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tangent_normal = vec3(0., 0., 1.);
 
     // compute phong color
-    @if(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)
+    @if(HAS_NORMAL && HAS_TANGENT)
     let result = phong_model(in, tangent_normal, object_color.xyz);
-    @if(!(HAS_NORMAL && HAS_TANGENT && HAS_BI_TANGENT)) // @else
+    @if(!(HAS_NORMAL && HAS_TANGENT)) // @else
     let result = phong.ambient_color;
 
     return vec4<f32>(result, 1.);

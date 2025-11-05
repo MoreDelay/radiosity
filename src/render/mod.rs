@@ -396,11 +396,6 @@ impl RenderState {
                 let tangent = self.model_resource_storage.tangent_buffer(tangent);
                 render_pass.set_vertex_buffer(slot, tangent.buffer.slice(..));
             }
-            if let Some(slot) = reqs.vertex.bi_tangent {
-                let bi_tangent = draw.bi_tangent.expect("required by chosen pipeline");
-                let bi_tangent = self.model_resource_storage.bi_tangent_buffer(bi_tangent);
-                render_pass.set_vertex_buffer(slot, bi_tangent.buffer.slice(..));
-            }
 
             let instances = if let Some(slot) = reqs.vertex.instance {
                 let instance = self
@@ -467,15 +462,6 @@ impl RenderState {
             .upload_tangent_buffer(&self.ctx, data, label)
     }
 
-    pub fn upload_bi_tangent_buffer(
-        &mut self,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> BiTangentBufferIndex {
-        self.model_resource_storage
-            .upload_bi_tangent_buffer(&self.ctx, data, label)
-    }
-
     pub fn add_material(
         &mut self,
         phong: &raw::PhongRaw,
@@ -509,7 +495,6 @@ pub(super) struct ResourceStorage {
     tex_coord_buffers: Vec<mesh::TexCoordsBuffer>,
     normal_buffers: Vec<mesh::NormalBuffer>,
     tangent_buffers: Vec<mesh::TangentBuffer>,
-    bi_tangent_buffers: Vec<mesh::BiTangentBuffer>,
     instance_buffers: Vec<mesh::InstanceBuffer>,
     material_bindings: Vec<resource::MaterialBindingGroup>,
 }
@@ -525,8 +510,6 @@ pub struct NormalBufferIndex(u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TangentBufferIndex(u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BiTangentBufferIndex(u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InstanceBufferIndex(u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MaterialBindingIndex(u32);
@@ -539,7 +522,6 @@ impl ResourceStorage {
             tex_coord_buffers: Vec::new(),
             normal_buffers: Vec::new(),
             tangent_buffers: Vec::new(),
-            bi_tangent_buffers: Vec::new(),
             // mesh_buffers: Vec::new(),
             instance_buffers: Vec::new(),
             material_bindings: Vec::new(),
@@ -564,10 +546,6 @@ impl ResourceStorage {
 
     fn tangent_buffer(&self, index: TangentBufferIndex) -> &mesh::TangentBuffer {
         &self.tangent_buffers[index.0 as usize]
-    }
-
-    fn bi_tangent_buffer(&self, index: BiTangentBufferIndex) -> &mesh::BiTangentBuffer {
-        &self.bi_tangent_buffers[index.0 as usize]
     }
 
     fn get_instance_buffer(&self, index: InstanceBufferIndex) -> &mesh::InstanceBuffer {
@@ -640,19 +618,6 @@ impl ResourceStorage {
         let index = TangentBufferIndex(index as u32);
         self.tangent_buffers
             .push(mesh::TangentBuffer::new(ctx, data, label));
-        index
-    }
-
-    fn upload_bi_tangent_buffer(
-        &mut self,
-        ctx: &GpuContext,
-        data: &[f32],
-        label: Option<&str>,
-    ) -> BiTangentBufferIndex {
-        let index = self.bi_tangent_buffers.len();
-        let index = BiTangentBufferIndex(index as u32);
-        self.bi_tangent_buffers
-            .push(mesh::BiTangentBuffer::new(ctx, data, label));
         index
     }
 

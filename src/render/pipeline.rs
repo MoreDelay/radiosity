@@ -16,7 +16,6 @@ pub struct PhongVertexRequirements {
     pub tex_coord: Option<u32>,
     pub normal: Option<u32>,
     pub tangent: Option<u32>,
-    pub bi_tangent: Option<u32>,
     pub instance: Option<u32>,
 }
 
@@ -36,9 +35,7 @@ impl PhongVertexRequirements {
         if let Some(tangent) = self.tangent {
             layout.push((tangent, raw::tangent_desc()));
         }
-        if let Some(bi_tangent) = self.bi_tangent {
-            layout.push((bi_tangent, raw::bitangent_desc()));
-        }
+
         if let Some(instance) = self.instance {
             layout.push((instance, raw::InstanceRaw::desc()));
         }
@@ -149,7 +146,6 @@ impl PhongPipeline {
                 },
                 normal: Some(slot_iter.next().unwrap()),
                 tangent: Some(slot_iter.next().unwrap()),
-                bi_tangent: Some(slot_iter.next().unwrap()),
                 instance: Some(slot_iter.next().unwrap()),
             }
         };
@@ -161,7 +157,6 @@ impl PhongPipeline {
         let mut features = vec![
             ("HAS_NORMAL", true),
             ("HAS_TANGENT", true),
-            ("HAS_BI_TANGENT", true),
             ("USE_SHADOW_MAP", true),
         ];
         let mut constants = vec![(
@@ -339,7 +334,6 @@ impl LightPipeline {
                 tex_coord: None,
                 normal: None,
                 tangent: None,
-                bi_tangent: None,
                 instance: Some(slot_iter.next().unwrap()),
             }
         };
@@ -441,7 +435,6 @@ impl LightPipeline {
             tex_coord: None,
             normal: None,
             tangent: None,
-            bi_tangent: None,
             instance: Some(1),
         };
         let bindings = PhongBindingRequirements {
@@ -544,7 +537,6 @@ impl ShadowPipeline {
             tex_coord: None,
             normal: None,
             tangent: None,
-            bi_tangent: None,
             instance: Some(1),
         };
         let bindings = PhongBindingRequirements {

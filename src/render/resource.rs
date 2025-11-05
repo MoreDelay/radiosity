@@ -765,7 +765,6 @@ pub struct DrawCall {
     pub tex_coord: Option<super::TexCoordBufferIndex>,
     pub normal: Option<super::NormalBufferIndex>,
     pub tangent: Option<super::TangentBufferIndex>,
-    pub bi_tangent: Option<super::BiTangentBufferIndex>,
 }
 
 pub struct DrawWorld {

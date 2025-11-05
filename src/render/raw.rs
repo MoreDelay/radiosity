@@ -71,8 +71,6 @@ pub struct VertexRaw {
 pub struct InstanceRaw {
     /// column-major homogeneous transformation matrix in world space
     pub model: [[f32; 4]; 4],
-    /// column-major rotation transformation matrix, 3x3 submatrix of `model`
-    pub normal: [[f32; 3]; 3],
 }
 
 /// Data format used to transfer textures to the GPU.
@@ -188,18 +186,6 @@ pub fn tangent_desc() -> wgpu::VertexBufferLayout<'static> {
     }
 }
 
-pub fn bitangent_desc() -> wgpu::VertexBufferLayout<'static> {
-    wgpu::VertexBufferLayout {
-        array_stride: 3 * std::mem::size_of::<f32>() as u64,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &[wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32x3,
-            offset: 0,
-            shader_location: 4,
-        }],
-    }
-}
-
 impl InstanceRaw {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -226,22 +212,6 @@ impl InstanceRaw {
                     offset: std::mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
                     shader_location: 8,
                     format: wgpu::VertexFormat::Float32x4,
-                },
-                // normal
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
-                    shader_location: 9,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
-                    shader_location: 10,
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
-                    shader_location: 11,
-                    format: wgpu::VertexFormat::Float32x3,
                 },
             ],
         }

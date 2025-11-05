@@ -5,8 +5,6 @@ use std::{
     rc::Rc,
 };
 
-use nalgebra as na;
-
 use crate::{model, render};
 
 #[derive(Debug)]
@@ -21,7 +19,6 @@ pub struct PrimitiveData {
     pub tex_coord: Option<render::TexCoordBufferIndex>,
     pub normal: Option<render::NormalBufferIndex>,
     pub tangent: Option<render::TangentBufferIndex>,
-    pub bi_tangent: Option<render::BiTangentBufferIndex>,
 }
 
 #[derive(Debug)]
@@ -55,10 +52,6 @@ pub struct DrawManager {
     map_tex_coord: HashMap<model::TexCoordBufferIndex, render::TexCoordBufferIndex>,
     map_normal: HashMap<model::NormalBufferIndex, render::NormalBufferIndex>,
     map_tangent: HashMap<model::TangentBufferIndex, render::TangentBufferIndex>,
-    map_bi_tangent: HashMap<
-        (model::NormalBufferIndex, model::TangentBufferIndex),
-        render::BiTangentBufferIndex,
-    >,
     map_material: HashMap<model::MaterialIndex, render::MaterialBindingIndex>,
 }
 
@@ -72,7 +65,6 @@ impl DrawManager {
             map_tex_coord: HashMap::new(),
             map_normal: HashMap::new(),
             map_tangent: HashMap::new(),
-            map_bi_tangent: HashMap::new(),
             map_material: HashMap::new(),
         }
     }
@@ -126,8 +118,8 @@ impl DrawManager {
                         }
                     });
 
-                let (normal, tangent, bi_tangent) = match *normal {
-                    None => (None, None, None),
+                let (normal, tangent) = match *normal {
+                    None => (None, None),
                     Some((normal_index, tangent_index)) => {
                         let normal = match self.map_normal.entry(normal_index) {
                             hash_map::Entry::Occupied(entry) => *entry.get(),
@@ -147,30 +139,7 @@ impl DrawManager {
                                 *entry.insert(index)
                             }
                         };
-                        let bi_tangent =
-                            match self.map_bi_tangent.entry((normal_index, tangent_index)) {
-                                hash_map::Entry::Occupied(entry) => *entry.get(),
-                                hash_map::Entry::Vacant(entry) => {
-                                    let (n, t) = *entry.key();
-                                    let n = storage.normal_buffer(n);
-                                    let t = storage.tangent_buffer(t);
-                                    let data = n
-                                        .normals
-                                        .iter()
-                                        .zip(t.tangents.iter())
-                                        .map(|(n, t)| {
-                                            let n = na::Vector3::from_column_slice(n);
-                                            let t = na::Vector3::from_column_slice(t);
-                                            let b = na::Unit::new_normalize(n.cross(&t));
-                                            [b[0], b[1], b[2]]
-                                        })
-                                        .collect::<Vec<_>>();
-                                    let data = bytemuck::cast_slice(&data);
-                                    let index = render_state.upload_bi_tangent_buffer(data, label);
-                                    *entry.insert(index)
-                                }
-                            };
-                        (Some(normal), Some(tangent), Some(bi_tangent))
+                        (Some(normal), Some(tangent))
                     }
                 };
 
@@ -179,7 +148,6 @@ impl DrawManager {
                     tex_coord,
                     normal,
                     tangent,
-                    bi_tangent,
                 };
 
                 let index = match self.map_index.entry(indices.buffer) {
@@ -250,7 +218,6 @@ impl DrawManager {
                         tex_coord,
                         normal,
                         tangent,
-                        bi_tangent,
                     } = prim.data;
 
                     let draw_type = match mesh.draw_type {
@@ -268,7 +235,6 @@ impl DrawManager {
                         tex_coord,
                         normal,
                         tangent,
-                        bi_tangent,
                     }
                 })
             })
