@@ -147,9 +147,9 @@ fn normal_from_map(tex_coords: vec2<f32>) -> vec3<f32> {
     return tangent_normal;
 }
 
-fn phong_ambient() -> vec3<f32> {
+fn phong_ambient(color: vec3<f32>) -> vec3<f32> {
     let ambient_strength = 0.1;
-    let ambient_color = phong.ambient_color * light.color * ambient_strength;
+    let ambient_color = color * /* phong.ambient_color * */ light.color * ambient_strength;
 
     return ambient_color;
 }
@@ -187,7 +187,7 @@ fn phong_model(in: VertexOutput, normal: vec3<f32>, color: vec3<f32>) -> vec3<f3
     let light_pos = in.tangent_light_position;
     let cam_pos = in.tangent_view_position;
 
-    let ambient_color = phong_ambient();
+    let ambient_color = phong_ambient(color);
     let diffuse_color = phong_diffuse(pos, light_pos, normal, color);
     let specular_color = phong_specular(pos, light_pos, cam_pos, normal);
 
@@ -205,7 +205,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     @if(USE_COLOR_MAP && HAS_TEX_COORD)
     let object_color = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     @if(!(USE_COLOR_MAP && HAS_TEX_COORD)) // @else
-    let object_color = vec4(1., 1., 1., 1.);
+    let object_color = vec4(phong.diffuse_color, 1.);
 
     // get normal in tangent space
     @if(USE_NORMAL_MAP && HAS_TEX_COORD)
