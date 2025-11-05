@@ -69,6 +69,7 @@ pub async fn create_render_instance(window: Arc<Window>) -> (GpuContext, TargetC
             // list available features with adapter.features() or device.features()
             required_features: wgpu::Features::empty(),
             required_limits,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
             label: None,
             memory_hints: Default::default(),
             trace: wgpu::Trace::Off,
@@ -233,6 +234,7 @@ impl RenderState {
                 label: Some("Shadow RenderPass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: cube_view,
+                    depth_slice: None,
                     resolve_target: None, // used for multi-sampling
                     ops: wgpu::Operations {
                         // can skip clear if rendering will cover whole surface anyway
@@ -290,6 +292,7 @@ impl RenderState {
                 // target for fragment shader @location(0)
                 Some(wgpu::RenderPassColorAttachment {
                     view: &output_view,
+                    depth_slice: None,
                     resolve_target: None, // used for multi-sampling
                     ops: wgpu::Operations {
                         // can skip clear if rendering will cover whole surface anyway
