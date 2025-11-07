@@ -132,7 +132,7 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn to_raw(&self, storage: &Storage) -> render::TextureRaw {
+    pub fn to_raw(&self, storage: &Storage, format: wgpu::TextureFormat) -> render::TextureRaw {
         let &Texture { sampler, image } = self;
         let image = storage.image(image);
         let (data, dims) = match image {
@@ -158,7 +158,6 @@ impl Texture {
             height,
             depth_or_array_layers: 1,
         };
-        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         render::TextureRaw {
             data,
             format,

@@ -169,12 +169,17 @@ impl DrawManager {
                     hash_map::Entry::Vacant(entry) => {
                         let data = storage.material(*entry.key());
                         let model::MaterialType::BlinnPhong(phong_params) = &data.data;
-                        let diffuse_map = phong_params
-                            .diffuse_map
-                            .map(|i| storage.texture(i).to_raw(storage));
+                        let diffuse_map = phong_params.diffuse_map.map(|i| {
+                            storage
+                                .texture(i)
+                                .to_raw(storage, wgpu::TextureFormat::Rgba8UnormSrgb)
+                        });
 
-                        let normal_texture =
-                            data.normal.map(|i| storage.texture(i).to_raw(storage));
+                        let normal_texture = data.normal.map(|i| {
+                            storage
+                                .texture(i)
+                                .to_raw(storage, wgpu::TextureFormat::Rgba8Unorm)
+                        });
 
                         let index = render_state.add_material(
                             &phong_params.to_raw(),
